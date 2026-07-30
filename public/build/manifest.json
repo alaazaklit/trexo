@@ -1,0 +1,107 @@
+{
+  "node_modules/@fontsource/cairo/files/cairo-arabic-400-normal.woff": {
+    "file": "assets/cairo-arabic-400-normal-4a8bcd7b.woff",
+    "src": "node_modules/@fontsource/cairo/files/cairo-arabic-400-normal.woff"
+  },
+  "node_modules/@fontsource/cairo/files/cairo-arabic-400-normal.woff2": {
+    "file": "assets/cairo-arabic-400-normal-1b36945f.woff2",
+    "src": "node_modules/@fontsource/cairo/files/cairo-arabic-400-normal.woff2"
+  },
+  "node_modules/@fontsource/cairo/files/cairo-arabic-500-normal.woff": {
+    "file": "assets/cairo-arabic-500-normal-a985bf43.woff",
+    "src": "node_modules/@fontsource/cairo/files/cairo-arabic-500-normal.woff"
+  },
+  "node_modules/@fontsource/cairo/files/cairo-arabic-500-normal.woff2": {
+    "file": "assets/cairo-arabic-500-normal-8bd9b6b3.woff2",
+    "src": "node_modules/@fontsource/cairo/files/cairo-arabic-500-normal.woff2"
+  },
+  "node_modules/@fontsource/cairo/files/cairo-arabic-600-normal.woff": {
+    "file": "assets/cairo-arabic-600-normal-49b703bc.woff",
+    "src": "node_modules/@fontsource/cairo/files/cairo-arabic-600-normal.woff"
+  },
+  "node_modules/@fontsource/cairo/files/cairo-arabic-600-normal.woff2": {
+    "file": "assets/cairo-arabic-600-normal-621909d2.woff2",
+    "src": "node_modules/@fontsource/cairo/files/cairo-arabic-600-normal.woff2"
+  },
+  "node_modules/@fontsource/cairo/files/cairo-arabic-700-normal.woff": {
+    "file": "assets/cairo-arabic-700-normal-6d9f4ec4.woff",
+    "src": "node_modules/@fontsource/cairo/files/cairo-arabic-700-normal.woff"
+  },
+  "node_modules/@fontsource/cairo/files/cairo-arabic-700-normal.woff2": {
+    "file": "assets/cairo-arabic-700-normal-673212b4.woff2",
+    "src": "node_modules/@fontsource/cairo/files/cairo-arabic-700-normal.woff2"
+  },
+  "node_modules/@fontsource/cairo/files/cairo-arabic-800-normal.woff": {
+    "file": "assets/cairo-arabic-800-normal-1b74c5cd.woff",
+    "src": "node_modules/@fontsource/cairo/files/cairo-arabic-800-normal.woff"
+  },
+  "node_modules/@fontsource/cairo/files/cairo-arabic-800-normal.woff2": {
+    "file": "assets/cairo-arabic-800-normal-ba5febcd.woff2",
+    "src": "node_modules/@fontsource/cairo/files/cairo-arabic-800-normal.woff2"
+  },
+  "node_modules/bootstrap-icons/font/fonts/bootstrap-icons.woff": {
+    "file": "assets/bootstrap-icons-f55513b7.woff",
+    "src": "node_modules/bootstrap-icons/font/fonts/bootstrap-icons.woff"
+  },
+  "node_modules/bootstrap-icons/font/fonts/bootstrap-icons.woff2": {
+    "file": "assets/bootstrap-icons-6c757103.woff2",
+    "src": "node_modules/bootstrap-icons/font/fonts/bootstrap-icons.woff2"
+  },
+  "resources/css/app.css": {
+    "file": "assets/app-4ed993c7.js",
+    "isEntry": true,
+    "src": "resources/css/app.css"
+  },
+  "resources/css/dashboard.css": {
+    "file": "assets/dashboard-a3b0c44d.css",
+    "src": "resources/js/dashboard.css"
+  },
+  "resources/css/driver-simulator.css": {
+    "file": "assets/driver-simulator-e3f637ef.css",
+    "src": "resources/js/driver-simulator.css"
+  },
+  "resources/css/public-ltr.css": {
+    "file": "assets/public-ltr-16755df7.css",
+    "isEntry": true,
+    "src": "resources/css/public-ltr.css"
+  },
+  "resources/css/public-rtl.css": {
+    "file": "assets/public-rtl-b43124e7.css",
+    "isEntry": true,
+    "src": "resources/css/public-rtl.css"
+  },
+  "resources/js/app.js": {
+    "file": "assets/app-2c259376.js",
+    "isEntry": true,
+    "src": "resources/js/app.js"
+  },
+  "resources/js/dashboard.css": {
+    "file": "assets/dashboard-a3b0c44d.css",
+    "src": "resources/js/dashboard.css"
+  },
+  "resources/js/dashboard.js": {
+    "css": [
+      "assets/dashboard-a3b0c44d.css"
+    ],
+    "file": "assets/dashboard-41ad0283.js",
+    "isEntry": true,
+    "src": "resources/js/dashboard.js"
+  },
+  "resources/js/driver-simulator.css": {
+    "file": "assets/driver-simulator-e3f637ef.css",
+    "src": "resources/js/driver-simulator.css"
+  },
+  "resources/js/driver-simulator.js": {
+    "css": [
+      "assets/driver-simulator-e3f637ef.css"
+    ],
+    "file": "assets/driver-simulator-4c9e890c.js",
+    "isEntry": true,
+    "src": "resources/js/driver-simulator.js"
+  },
+  "resources/js/public.js": {
+    "file": "assets/public-c0a39723.js",
+    "isEntry": true,
+    "src": "resources/js/public.js"
+  }
+}
