@@ -13,8 +13,8 @@ class FcmMessagingService
 
     public function __construct()
     {
-        // Path to your Firebase service account key
-        $serviceAccountFile = storage_path('firebase/allo-delivery-4bcb0-firebase-adminsdk-fbsvc-f0c988e59e.json');
+        // Path to your Firebase service account key (kept outside the webroot; see FIREBASE_CREDENTIALS)
+        $serviceAccountFile = config('services.firebase.credentials');
 
         // Firebase Project ID
         $this->projectId = "allo-delivery-4bcb0";
