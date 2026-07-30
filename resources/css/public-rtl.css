@@ -1,0 +1,19 @@
+@import "bootstrap/dist/css/bootstrap.rtl.min.css";
+@import "bootstrap-icons/font/bootstrap-icons.css";
+@import "swiper/css";
+@import "swiper/css/navigation";
+@import "swiper/css/pagination";
+@import "@fontsource/cairo/arabic-400.css";
+@import "@fontsource/cairo/arabic-500.css";
+@import "@fontsource/cairo/arabic-600.css";
+@import "@fontsource/cairo/arabic-700.css";
+@import "@fontsource/cairo/arabic-800.css";
+@import "./public-shared.css";
+
+:root {
+    --bs-body-font-family: "Cairo", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+body {
+    font-family: var(--bs-body-font-family);
+}

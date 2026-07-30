@@ -1,0 +1,357 @@
+:root {
+    --sim-bg: #07111f;
+    --sim-panel: rgba(7, 17, 31, 0.78);
+    --sim-panel-strong: rgba(10, 24, 42, 0.92);
+    --sim-border: rgba(145, 173, 210, 0.16);
+    --sim-text: #e9f2ff;
+    --sim-muted: #9ab0c8;
+    --sim-accent: #67d1ff;
+    --sim-accent-2: #8f7bff;
+    --sim-success: #2dd4bf;
+    --sim-warning: #fbbf24;
+    --sim-danger: #fb7185;
+}
+
+.driver-simulator-shell {
+    position: relative;
+    min-height: calc(100vh - 2rem);
+    border-radius: 24px;
+    overflow: hidden;
+    background:
+        radial-gradient(circle at top left, rgba(103, 209, 255, 0.18), transparent 32%),
+        radial-gradient(circle at top right, rgba(143, 123, 255, 0.14), transparent 28%),
+        linear-gradient(160deg, #06101d 0%, #0a1728 45%, #07111f 100%);
+    color: var(--sim-text);
+    box-shadow: 0 24px 80px rgba(2, 8, 23, 0.45);
+}
+
+.driver-simulator-map {
+    position: absolute;
+    inset: 0;
+    min-height: 100vh;
+    background: #0b1524;
+}
+
+.driver-simulator-overlay {
+    position: relative;
+    z-index: 5;
+    display: grid;
+    grid-template-columns: minmax(320px, 1fr) minmax(360px, 420px);
+    gap: 1rem;
+    padding: 1rem;
+    min-height: 100vh;
+    backdrop-filter: blur(4px);
+}
+
+.driver-simulator-column {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.driver-simulator-panel {
+    background: var(--sim-panel);
+    border: 1px solid var(--sim-border);
+    border-radius: 20px;
+    box-shadow: 0 12px 40px rgba(1, 6, 15, 0.28);
+    overflow: hidden;
+}
+
+.driver-simulator-panel--solid {
+    background: var(--sim-panel-strong);
+}
+
+.driver-simulator-panel__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 1rem 1.1rem;
+    border-bottom: 1px solid rgba(145, 173, 210, 0.12);
+}
+
+.driver-simulator-panel__body {
+    padding: 1rem 1.1rem 1.1rem;
+}
+
+.driver-simulator-title {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+}
+
+.driver-simulator-subtitle {
+    margin: 0.15rem 0 0;
+    color: var(--sim-muted);
+    font-size: 0.85rem;
+}
+
+.driver-simulator-stats {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+
+.driver-simulator-stat {
+    padding: 0.9rem 1rem;
+    border-radius: 16px;
+    border: 1px solid rgba(145, 173, 210, 0.12);
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.driver-simulator-stat__label {
+    color: var(--sim-muted);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.driver-simulator-stat__value {
+    margin-top: 0.35rem;
+    font-size: 1.5rem;
+    font-weight: 700;
+}
+
+.driver-simulator-controls {
+    display: grid;
+    gap: 0.85rem;
+}
+
+.driver-simulator-form {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+
+.driver-simulator-form--single {
+    grid-template-columns: 1fr;
+}
+
+.driver-simulator-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.driver-simulator-label {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--sim-muted);
+}
+
+.driver-simulator-input,
+.driver-simulator-select,
+.driver-simulator-textarea {
+    width: 100%;
+    padding: 0.78rem 0.85rem;
+    border-radius: 12px;
+    border: 1px solid rgba(145, 173, 210, 0.18);
+    background: rgba(7, 17, 31, 0.84);
+    color: var(--sim-text);
+    outline: none;
+}
+
+.driver-simulator-textarea {
+    min-height: 88px;
+    resize: vertical;
+}
+
+.driver-simulator-input:focus,
+.driver-simulator-select:focus,
+.driver-simulator-textarea:focus {
+    border-color: rgba(103, 209, 255, 0.7);
+    box-shadow: 0 0 0 3px rgba(103, 209, 255, 0.12);
+}
+
+.driver-simulator-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin-top: 0.25rem;
+}
+
+.driver-simulator-button {
+    appearance: none;
+    border: 0;
+    border-radius: 999px;
+    padding: 0.75rem 1rem;
+    background: linear-gradient(135deg, var(--sim-accent), var(--sim-accent-2));
+    color: #04101c;
+    font-weight: 700;
+    cursor: pointer;
+    transition: transform 0.14s ease, box-shadow 0.14s ease, opacity 0.14s ease;
+}
+
+.driver-simulator-button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 22px rgba(103, 209, 255, 0.18);
+}
+
+.driver-simulator-button--ghost {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--sim-text);
+    border: 1px solid rgba(145, 173, 210, 0.14);
+}
+
+.driver-simulator-button--danger {
+    background: linear-gradient(135deg, #fb7185, #f87171);
+    color: #20060b;
+}
+
+.driver-simulator-button--success {
+    background: linear-gradient(135deg, #34d399, #2dd4bf);
+    color: #041814;
+}
+
+.driver-simulator-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+.driver-simulator-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+}
+
+.driver-simulator-toolbar .driver-simulator-input,
+.driver-simulator-toolbar .driver-simulator-select {
+    min-width: 140px;
+}
+
+.driver-simulator-list {
+    display: grid;
+    gap: 0.65rem;
+    max-height: 40vh;
+    overflow: auto;
+    padding-right: 0.25rem;
+}
+
+.driver-simulator-card {
+    display: grid;
+    gap: 0.45rem;
+    padding: 0.9rem 0.95rem;
+    border-radius: 16px;
+    border: 1px solid rgba(145, 173, 210, 0.12);
+    background: rgba(255, 255, 255, 0.03);
+    cursor: pointer;
+}
+
+.driver-simulator-card.is-selected {
+    border-color: rgba(103, 209, 255, 0.8);
+    box-shadow: 0 0 0 2px rgba(103, 209, 255, 0.12);
+}
+
+.driver-simulator-card__top,
+.driver-simulator-card__bottom {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+}
+
+.driver-simulator-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.35rem 0.65rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.06);
+    font-size: 0.75rem;
+    white-space: nowrap;
+}
+
+.driver-simulator-badge--success {
+    background: rgba(45, 212, 191, 0.12);
+    color: #8ef7e6;
+}
+
+.driver-simulator-badge--warning {
+    background: rgba(251, 191, 36, 0.12);
+    color: #fde68a;
+}
+
+.driver-simulator-badge--danger {
+    background: rgba(251, 113, 133, 0.12);
+    color: #fda4af;
+}
+
+.driver-simulator-badge--accent {
+    background: rgba(103, 209, 255, 0.12);
+    color: #9be4ff;
+}
+
+.driver-simulator-muted {
+    color: var(--sim-muted);
+}
+
+.driver-simulator-rides {
+    display: grid;
+    gap: 0.65rem;
+}
+
+.driver-simulator-ride {
+    padding: 0.85rem 0.95rem;
+    border-radius: 16px;
+    border: 1px solid rgba(145, 173, 210, 0.12);
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.driver-simulator-ride__header,
+.driver-simulator-ride__footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+}
+
+.driver-simulator-ride__body {
+    margin-top: 0.55rem;
+    display: grid;
+    gap: 0.3rem;
+    color: var(--sim-muted);
+    font-size: 0.86rem;
+}
+
+.driver-simulator-empty {
+    padding: 1rem;
+    color: var(--sim-muted);
+    text-align: center;
+    border-radius: 14px;
+    border: 1px dashed rgba(145, 173, 210, 0.18);
+}
+
+.driver-simulator-hint {
+    color: var(--sim-muted);
+    font-size: 0.82rem;
+}
+
+@media (max-width: 1200px) {
+    .driver-simulator-overlay {
+        grid-template-columns: 1fr;
+    }
+
+    .driver-simulator-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 700px) {
+    .driver-simulator-overlay {
+        padding: 0.75rem;
+    }
+
+    .driver-simulator-stats {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .driver-simulator-form,
+    .driver-simulator-toolbar {
+        grid-template-columns: 1fr;
+    }
+}

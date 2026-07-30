@@ -1,0 +1,6 @@
+User-agent: *
+Disallow: /admin
+Disallow: /storage/driver-applications
+
+# Replace with the production domain before going live.
+Sitemap: https://trexo.com/sitemap.xml
