@@ -53,8 +53,9 @@ return [
       
         'public' => [
             'driver' => 'local',
-            // Directly specify the path to the storage folder inside public_html
-            'root' => $_SERVER['DOCUMENT_ROOT'] . '/storage',
+            // public_path() is deterministic (unlike $_SERVER['DOCUMENT_ROOT'], which can be
+            // empty depending on how the web server invokes PHP, e.g. behind a proxy or in CLI).
+            'root' => public_path('storage'),
             'url' => env('APP_URL') . '/storage', // URL to access the file
             'visibility' => 'public',
             ],
