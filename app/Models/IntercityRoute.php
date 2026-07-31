@@ -40,4 +40,19 @@ class IntercityRoute extends Model
     {
         return ($this->fromZone?->name ?? '?') . ' ↔ ' . ($this->toZone?->name ?? '?');
     }
+
+    // Voyager's browse.blade.php swaps in "{field}_browse" for the raw
+    // column value when present (see its `$data->{$row->field.'_browse'}`
+    // check) — from_zone_id/to_zone_id are plain int columns (see
+    // 2026_07_31_000002 migration), so without this the admin list would
+    // show a bare zone id instead of its name.
+    public function getFromZoneIdBrowseAttribute(): string
+    {
+        return $this->fromZone?->name ?? '?';
+    }
+
+    public function getToZoneIdBrowseAttribute(): string
+    {
+        return $this->toZone?->name ?? '?';
+    }
 }
