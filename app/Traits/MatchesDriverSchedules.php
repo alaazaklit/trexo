@@ -492,30 +492,37 @@ trait MatchesDriverSchedules
         }
 
         try {
-            $response = Http::timeout(3)->get('https://maps.googleapis.com/maps/api/distancematrix/json', [
-                'origins' => "{$originLat},{$originLng}",
-                'destinations' => "{$destLat},{$destLng}",
-                'mode' => 'driving',
-                'key' => $apiKey,
-            ]);
+            $response = Http::timeout(3)
+                ->withHeaders([
+                    'Content-Type' => 'application/json',
+                    'X-Goog-Api-Key' => $apiKey,
+                    // Field mask is required by the Routes API — an unmasked
+                    // request is rejected outright, not just trimmed down.
+                    'X-Goog-FieldMask' => 'routes.duration',
+                ])
+                ->post('https://routes.googleapis.com/directions/v2:computeRoutes', [
+                    'origin' => ['location' => ['latLng' => ['latitude' => $originLat, 'longitude' => $originLng]]],
+                    'destination' => ['location' => ['latLng' => ['latitude' => $destLat, 'longitude' => $destLng]]],
+                    'travelMode' => 'DRIVE',
+                ]);
 
             if (!$response->successful()) {
+                Log::warning('Routes API pickup ETA lookup failed', ['status' => $response->status(), 'body' => $response->body()]);
                 return null;
             }
 
-            $element = $response->json('rows.0.elements.0');
-            if (!is_array($element) || ($element['status'] ?? null) !== 'OK') {
+            // Returned as e.g. "823s", not a plain number like the legacy
+            // Distance Matrix API's duration.value.
+            $duration = $response->json('routes.0.duration');
+            if (!is_string($duration) || !str_ends_with($duration, 's')) {
                 return null;
             }
 
-            $seconds = $element['duration']['value'] ?? null;
-            if (!is_numeric($seconds)) {
-                return null;
-            }
+            $seconds = (float) rtrim($duration, 's');
 
             return (int) round($seconds / 60);
         } catch (\Throwable $e) {
-            Log::warning('Distance Matrix pickup ETA lookup failed', ['error' => $e->getMessage()]);
+            Log::warning('Routes API pickup ETA lookup failed', ['error' => $e->getMessage()]);
             return null;
         }
     }
