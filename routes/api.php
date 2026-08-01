@@ -64,7 +64,8 @@ if (class_exists(\Laravel\Passport\Http\Controllers\AccessTokenController::class
     Route::post('oauth/token', '\Laravel\Passport\Http\Controllers\AccessTokenController@issueToken');
 }
 Route::post('/requestOtp', [App\Http\Controllers\Api\UsersController::class, 'requestOtp'])->name('requestOtp');
-Route::post('/refresh-token', [App\Http\Controllers\Api\UsersController::class, 'refreshToken'])->name('refreshToken');
+Route::post('/refresh', [App\Http\Controllers\Api\UsersController::class, 'refresh'])->name('refresh')->middleware('throttle:refresh');
+Route::post('/logout', [App\Http\Controllers\Api\UsersController::class, 'logout'])->name('logout');
 Route::post('/verifyOtp', [App\Http\Controllers\Api\UsersController::class, 'verifyOtp'])->name('verifyOtp');
 Route::post('/forgotPassword', [App\Http\Controllers\Api\UsersController::class, 'forgotPassword'])->name('forgotPassword');
 Route::post('/resetPassword', [App\Http\Controllers\Api\UsersController::class, 'resetPassword'])->name('resetPassword');

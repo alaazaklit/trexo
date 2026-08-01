@@ -64,6 +64,11 @@ class User extends \TCG\Voyager\Models\User implements JWTSubject
         return $this->hasMany(\App\Order::class, 'user_id');
     }
 
+    public function refreshTokens()
+    {
+        return $this->hasMany(\App\Models\RefreshToken::class);
+    }
+
     public function isBlocked(): bool
     {
         return $this->account_status !== 'active';

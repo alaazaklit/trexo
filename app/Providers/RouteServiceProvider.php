@@ -44,5 +44,14 @@ class RouteServiceProvider extends ServiceProvider
         RateLimiter::for('api', function (Request $request) {
             return Limit::perMinute(60)->by($request->user()?->id ?: $request->ip());
         });
+
+        // Tighter than the general 'api' limiter: /refresh is unauthenticated
+        // (it's how you get authenticated) and a plaintext token guess is
+        // the only thing standing between an attacker and a live session,
+        // so it's rate-limited by IP specifically to slow down brute-force
+        // guessing of refresh tokens.
+        RateLimiter::for('refresh', function (Request $request) {
+            return Limit::perMinute(10)->by($request->ip());
+        });
     }
 }
