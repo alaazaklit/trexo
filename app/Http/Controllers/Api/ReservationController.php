@@ -333,9 +333,13 @@ class ReservationController extends Controller
             $passengerRoute = [$passengerPickup, $passengerDestination];
         }
 
-        $passengerDistanceKm = $reservation->route_distance_km
-            ? (float) $reservation->route_distance_km
-            : $this->calculatePolylineDistance($passengerRoute);
+        $passengerDistanceKm = $this->resolveTripDistanceKm(
+            $passengerPickup,
+            $passengerDestination,
+            $reservation->route_distance_km
+                ? (float) $reservation->route_distance_km
+                : $this->calculatePolylineDistance($passengerRoute)
+        );
 
         $drivers = $this->findMatchingDrivers(
             $passengerRoute,

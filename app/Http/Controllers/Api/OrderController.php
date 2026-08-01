@@ -1244,9 +1244,13 @@ public function getOrderDrivers($orderId = 34)
         'lat' => (float) $order->destination_lat,
         'lng' => (float) $order->destination_lng,
     ];
-    $passengerDistanceKm = $order->route_distance_km
-        ? (float) $order->route_distance_km
-        : $this->calculatePolylineDistance($passengerRoute);
+    $passengerDistanceKm = $this->resolveTripDistanceKm(
+        $passengerPickup,
+        $passengerDestination,
+        $order->route_distance_km
+            ? (float) $order->route_distance_km
+            : $this->calculatePolylineDistance($passengerRoute)
+    );
 
     $drivers = $this->findMatchingDrivers(
         $passengerRoute,
