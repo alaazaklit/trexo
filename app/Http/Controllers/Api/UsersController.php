@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use App\Models\User;
 use App\VerificationCode;
 use App\Services\WhatsAppService;
+use App\Services\Auth\RefreshTokenService;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Auth;
 use Tymon\JWTAuth\Facades\JWTAuth;
@@ -21,10 +22,28 @@ use Illuminate\Support\Str;
 class UsersController extends Controller
 {
     private WhatsAppService $whatsAppService;
+    private RefreshTokenService $refreshTokenService;
 
-    public function __construct(WhatsAppService $whatsAppService)
+    public function __construct(WhatsAppService $whatsAppService, RefreshTokenService $refreshTokenService)
     {
         $this->whatsAppService = $whatsAppService;
+        $this->refreshTokenService = $refreshTokenService;
+    }
+
+    /**
+     * Issues a fresh short-lived access token plus a long-lived refresh
+     * token for the given user. Used by both verifyOtp (initial login) and
+     * refresh() (silent renewal), so both paths hand back an identically
+     * shaped token pair.
+     */
+    private function issueTokenPair(User $user): array
+    {
+        return [
+            'access_token' => JWTAuth::fromUser($user),
+            'refresh_token' => $this->refreshTokenService->issue($user),
+            'token_type' => 'bearer',
+            'expires_in' => (int) config('jwt.ttl') * 60,
+        ];
     }
 
     private function normalizePhoneNumber(?string $phone): string
@@ -352,20 +371,30 @@ public function validateToken(Request $request)
     ], 401);
 }
 
-public function refreshToken(Request $request)
+public function refresh(Request $request)
 {
-    try {
-        $bearerToken = $request->bearerToken();
+    $validator = Validator::make($request->all(), [
+        'refresh_token' => 'required|string',
+    ]);
 
-        if (!$bearerToken) {
+    if ($validator->fails()) {
+        return response()->json([
+            'result' => false,
+            'message' => 'Missing refresh token',
+        ], 401);
+    }
+
+    try {
+        $record = $this->refreshTokenService->resolve($request->input('refresh_token'));
+
+        if (!$record) {
             return response()->json([
                 'result' => false,
-                'message' => 'Missing access token',
+                'message' => 'Refresh token is invalid, expired, or revoked',
             ], 401);
         }
 
-        $newToken = JWTAuth::setToken($bearerToken)->refresh();
-        $user = JWTAuth::setToken($newToken)->toUser();
+        $user = $record->user;
 
         if (!$user) {
             return response()->json([
@@ -382,12 +411,19 @@ public function refreshToken(Request $request)
             ], 403);
         }
 
-        return response()->json([
+        // Rotate: this refresh token is single-use — revoke it the moment
+        // it's redeemed and hand back a brand new one. A stolen-in-transit
+        // refresh token that's already been used by the legitimate client
+        // is dead on arrival for whoever else has it.
+        $this->refreshTokenService->revoke($record);
+        $tokens = $this->issueTokenPair($user);
+
+        return response()->json(array_merge([
             'result' => true,
             'message' => 'Token refreshed successfully',
-            'token' => $newToken,
+            'token' => $tokens['access_token'],
             'user' => $this->formatUserResponse($user, $request),
-        ], 200);
+        ], $tokens), 200);
     } catch (\Throwable $e) {
         Log::warning('Token refresh failed', [
             'message' => $e->getMessage(),
@@ -398,6 +434,26 @@ public function refreshToken(Request $request)
             'message' => 'Unable to refresh token',
         ], 401);
     }
+}
+
+public function logout(Request $request)
+{
+    $refreshTokenValue = $request->input('refresh_token');
+    if ($refreshTokenValue) {
+        $record = $this->refreshTokenService->resolve($refreshTokenValue);
+        if ($record) {
+            $this->refreshTokenService->revoke($record);
+        }
+    }
+
+    try {
+        JWTAuth::parseToken()->invalidate();
+    } catch (\Throwable $e) {
+        // No/invalid access token on the request — nothing left to
+        // invalidate, and logging out should succeed regardless.
+    }
+
+    return response()->json(['result' => true, 'message' => 'Logged out'], 200);
 }
 
 
@@ -454,15 +510,15 @@ public function verifyOtp(Request $request)
     $user->is_verified = 1;
     $user->save();
 
-    $token = JWTAuth::fromUser($user);
+    $tokens = $this->issueTokenPair($user);
 
-    return response()->json([
+    return response()->json(array_merge([
         'result' => true,
         'message' => 'تم التحقق بنجاح',
-        'token' => $token,
+        'token' => $tokens['access_token'],
         'needs_profile' => empty($user->name),
         'user' => $this->formatUserResponse($user, $request),
-    ], 200);
+    ], $tokens), 200);
 }
 
 
@@ -564,14 +620,21 @@ public function resetPassword(Request $request)
     $user->password = Hash::make($request->input('password'));
     $user->save();
 
-    $token = JWTAuth::fromUser($user);
+    // A password reset is a signal the account may have been compromised
+    // (or the old password simply forgotten) — either way, every device
+    // that was already signed in should be forced to re-authenticate
+    // rather than silently keep refreshing on the old password's session.
+    // Revoking here (before issuing this request's own pair) only kills
+    // *other* sessions; this device gets a fresh one right after.
+    $this->refreshTokenService->revokeAllForUser($user);
+    $tokens = $this->issueTokenPair($user);
 
-    return response()->json([
+    return response()->json(array_merge([
         'result' => true,
         'message' => 'تم تحديث كلمة المرور بنجاح',
-        'token' => $token,
+        'token' => $tokens['access_token'],
         'user' => $this->formatUserResponse($user, $request),
-    ], 200);
+    ], $tokens), 200);
 }
 
 /////////////////////////NOTIFICATIONS/////////////////////////
@@ -619,6 +682,7 @@ public function deleteAccount(Request $request)
     $user->is_available = false;
     $user->save();
 
+    $this->refreshTokenService->revokeAllForUser($user);
     $user->delete();
 
     return response()->json([
