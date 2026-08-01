@@ -527,6 +527,52 @@ trait MatchesDriverSchedules
         }
     }
 
+    /**
+     * Authoritative trip distance (pickup -> destination) via Google Routes
+     * API. The caller's own route_distance_km is whatever the mobile app's
+     * client-side calculation produced and is trusted with zero server-side
+     * validation elsewhere — a client bug or a bad GPS fix there directly
+     * inflates/deflates the fare. Falls back to that same value (or the
+     * caller's polyline-sum) whenever the API call fails, so a Google outage
+     * degrades to the previous behavior rather than breaking pricing.
+     */
+    protected function resolveTripDistanceKm(array $pickup, array $destination, float $fallbackKm): float
+    {
+        $apiKey = config('services.google_maps.key');
+        if (empty($apiKey)) {
+            return $fallbackKm;
+        }
+
+        try {
+            $response = Http::timeout(3)
+                ->withHeaders([
+                    'Content-Type' => 'application/json',
+                    'X-Goog-Api-Key' => $apiKey,
+                    'X-Goog-FieldMask' => 'routes.distanceMeters',
+                ])
+                ->post('https://routes.googleapis.com/directions/v2:computeRoutes', [
+                    'origin' => ['location' => ['latLng' => ['latitude' => $pickup['lat'], 'longitude' => $pickup['lng']]]],
+                    'destination' => ['location' => ['latLng' => ['latitude' => $destination['lat'], 'longitude' => $destination['lng']]]],
+                    'travelMode' => 'DRIVE',
+                ]);
+
+            if (!$response->successful()) {
+                Log::warning('Routes API trip distance lookup failed', ['status' => $response->status(), 'body' => $response->body()]);
+                return $fallbackKm;
+            }
+
+            $meters = $response->json('routes.0.distanceMeters');
+            if (!is_numeric($meters) || $meters <= 0) {
+                return $fallbackKm;
+            }
+
+            return round($meters / 1000, 3);
+        } catch (\Throwable $e) {
+            Log::warning('Routes API trip distance lookup failed', ['error' => $e->getMessage()]);
+            return $fallbackKm;
+        }
+    }
+
     protected function getBaseFare(int $orderType, ?PricingZone $zone = null): float
     {
         $key = $orderType === 0 ? 'fare.base_taxi' : 'fare.base_delivery';
