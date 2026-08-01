@@ -41,8 +41,19 @@ class RouteServiceProvider extends ServiceProvider
      */
     protected function configureRateLimiting(): void
     {
+        // 60/min was Laravel's untouched scaffold default — never actually
+        // sized for this app. A single active user can easily have several
+        // independent pollers running at once (dashboard pending-counts
+        // every 20s, the driver-request popup every 8s, location pings
+        // every 15s, order tracking every 8s, order details every 6s,
+        // notifications every 25s), which sits close to 60/min on its own
+        // before counting retries or a second screen. Once any small burst
+        // tips a user over the old cap, every one of those pollers gets
+        // rejected for the rest of that rolling minute, not just the one
+        // that caused it. 300/min gives real headroom for that legitimate
+        // load while still bounding a genuinely runaway client.
         RateLimiter::for('api', function (Request $request) {
-            return Limit::perMinute(60)->by($request->user()?->id ?: $request->ip());
+            return Limit::perMinute(300)->by($request->user()?->id ?: $request->ip());
         });
 
         // Tighter than the general 'api' limiter: /refresh is unauthenticated

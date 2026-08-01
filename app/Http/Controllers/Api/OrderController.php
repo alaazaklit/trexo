@@ -434,7 +434,15 @@ function updateOrderStatus(Request $request, FcmMessagingService $Notification)
       // The driver had the request open and the 60s countdown ran out with
       // no accept/reject tap — distinct from an explicit rejection above,
       // so the seller sees "no response" rather than "driver rejected".
-      if ($result && $status === 'request_expired' && (int) $order->driver_id === (int) $user->id) {
+      // Also guards against a stale client-side countdown: if the driver
+      // already accepted (and possibly moved the order on to picked_up/
+      // in_transit/etc.) through another screen or the request popup, a
+      // leftover countdown from an earlier, un-refreshed Orders-tab card can
+      // still fire this call after the fact. Without checking that the
+      // order is still actually 'waiting_driver_response', that stale call
+      // would clobber an in-progress trip back to "expired" and wrongly
+      // tell the seller the driver never responded.
+      if ($result && $status === 'request_expired' && $order->status === 'waiting_driver_response' && (int) $order->driver_id === (int) $user->id) {
         $order->status = 'request_expired';
         $order->driver_id = null;
         $order->save();
