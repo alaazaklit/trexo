@@ -424,22 +424,38 @@ class ReservationController extends Controller
             ], 404);
         }
 
+        // Fetched unconditionally (not just while actively trackable) so the
+        // reservation details map can always show a pickup/destination
+        // route preview, with live driver tracking layered on top only once
+        // the trip is actually underway.
+        $pickup = $reservation->pickup ?? [];
+        $destination = $reservation->destination ?? [];
+        $routeCoordinates = [
+            'start_address' => $pickup['address'] ?? null,
+            'destination_address' => $destination['address'] ?? null,
+            'start_lat' => isset($pickup['lat']) ? (float) $pickup['lat'] : null,
+            'start_lng' => isset($pickup['lng']) ? (float) $pickup['lng'] : null,
+            'destination_lat' => isset($destination['lat']) ? (float) $destination['lat'] : null,
+            'destination_lng' => isset($destination['lng']) ? (float) $destination['lng'] : null,
+        ];
+
         if (!$this->isReservationTrackableNow($reservation)) {
             return response()->json([
                 'result' => true,
                 'trackable' => false,
                 'status' => $reservation->status,
+                ...$routeCoordinates,
             ], 200);
         }
 
         $driver = User::find($reservation->driver_id);
-        $pickup = $reservation->pickup ?? [];
         if (!$driver || $driver->latitude === null || $driver->longitude === null || empty($pickup)) {
             return response()->json([
                 'result' => true,
                 'trackable' => false,
                 'status' => $reservation->status,
                 'message' => 'Driver location not available yet',
+                ...$routeCoordinates,
             ], 200);
         }
 
@@ -457,8 +473,6 @@ class ReservationController extends Controller
             'trackable' => true,
             'target' => 'pickup',
             'status' => $reservation->status,
-            'start_address' => $pickup['address'] ?? null,
-            'destination_address' => ($reservation->destination ?? [])['address'] ?? null,
             'target_lat' => (float) ($pickup['lat'] ?? 0),
             'target_lng' => (float) ($pickup['lng'] ?? 0),
             'driver_lat' => (float) $driver->latitude,
@@ -468,6 +482,7 @@ class ReservationController extends Controller
             'driver_last_seen_at' => optional($driver->last_seen_at)->toIso8601String(),
             'distance_remaining_km' => round($distanceKm, 3),
             'eta_minutes' => $etaMinutes,
+            ...$routeCoordinates,
         ], 200);
     }
 
