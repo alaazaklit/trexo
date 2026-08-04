@@ -10,6 +10,8 @@ use Illuminate\Support\Facades\Validator;
 use Tymon\JWTAuth\Facades\JWTAuth;
 use App\Models\User;
 use App\Notification;
+use App\Order;
+use App\Reservation;
 use Illuminate\Support\Facades\DB;
 
 
@@ -84,6 +86,32 @@ function getNotifications(Request $request)
 
     $notifications = $query->orderBy('notifications.created_at', 'desc')->get();
 
+    // `notifications.data` is a frozen snapshot of the order/reservation
+    // status at the moment the row was created — it goes stale the instant
+    // another driver accepts the same request, the seller cancels it, or it
+    // auto-expires. Attach the live status in bulk (one query per section,
+    // not per row) so the app can tell a driver their accept/decline
+    // buttons no longer apply instead of leaving them tappable on a
+    // request that already moved on.
+    $orderIds = $notifications->where('section', 'orders')->pluck('ref_id')->unique()->values();
+    $reservationIds = $notifications->where('section', 'reservations')->pluck('ref_id')->unique()->values();
+
+    $orders = Order::whereIn('id', $orderIds)
+        ->get(['id', 'status', 'order_kind', 'driver_id'])
+        ->keyBy('id');
+
+    $reservations = Reservation::whereIn('id', $reservationIds)
+        ->get(['id', 'status', 'driver_id'])
+        ->keyBy('id');
+
+    foreach ($notifications as $notification) {
+        $order = $notification->section === 'orders' ? $orders->get($notification->ref_id) : null;
+        $reservation = $notification->section === 'reservations' ? $reservations->get($notification->ref_id) : null;
+
+        $notification->current_status = $order->status ?? $reservation->status ?? null;
+        $notification->current_order_kind = $order->order_kind ?? null;
+        $notification->current_driver_id = $order->driver_id ?? $reservation->driver_id ?? null;
+    }
 
     $totalCount = $notifications[0]->total_count ?? 0;
     $unReadCount = $notifications[0]->unread_total_count ?? 0;
