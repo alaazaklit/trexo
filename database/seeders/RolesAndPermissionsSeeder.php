@@ -29,6 +29,14 @@ class RolesAndPermissionsSeeder extends Seeder
         'driver-applications.manage',
         'contact-messages.view',
         'contact-messages.manage',
+        'subscriptions.view',
+        'subscriptions.manage',
+        'wallet.view',
+        'wallet.manage',
+        'school-bus.view',
+        'school-bus.manage',
+        'broadcasts.view',
+        'broadcasts.manage',
     ];
 
     private const ROLE_PERMISSIONS = [
@@ -39,8 +47,13 @@ class RolesAndPermissionsSeeder extends Seeder
             'customers.view', 'customers.manage',
             'vehicles.manage',
             'driver-applications.view', 'driver-applications.manage',
+            'subscriptions.view', 'wallet.view',
+            'school-bus.view', 'school-bus.manage',
         ],
-        'Finance' => ['dashboard.view', 'finance.view'],
+        'Finance' => [
+            'dashboard.view', 'finance.view',
+            'subscriptions.view', 'subscriptions.manage', 'wallet.view', 'wallet.manage',
+        ],
         'Support' => [
             'dashboard.view',
             'orders.view', 'orders.manage',
@@ -51,6 +64,7 @@ class RolesAndPermissionsSeeder extends Seeder
             'dashboard.view',
             'driver-applications.view', 'driver-applications.manage',
             'contact-messages.view', 'contact-messages.manage',
+            'broadcasts.view', 'broadcasts.manage',
         ],
     ];
 

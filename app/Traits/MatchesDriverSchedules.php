@@ -95,6 +95,33 @@ trait MatchesDriverSchedules
             ->where(function ($q) {
                 $q->whereNull('drivers.approval_status')->orWhere('drivers.approval_status', 'approved');
             })
+            // A lapsed paid subscription does NOT exclude a driver — they
+            // fall back to Basic (never expires) automatically, matching
+            // SubscriptionService::currentSubscriptionFor exactly. This
+            // only excludes the case of a driver with zero subscription
+            // history at all, which shouldn't happen post-Driver::booted()
+            // backfill, but is checked defensively rather than assumed.
+            ->whereExists(function ($query) {
+                $query->select(DB::raw(1))
+                    ->from('driver_subscriptions')
+                    ->whereColumn('driver_subscriptions.driver_id', 'drivers.id')
+                    ->where('driver_subscriptions.payment_status', 'approved')
+                    ->where(function ($q) {
+                        $q->whereNull('driver_subscriptions.end_date')
+                            ->orWhereDate('driver_subscriptions.end_date', '>=', now()->toDateString());
+                    });
+            })
+            // This app is cash-to-driver — a driver who lets unpaid
+            // commission pile up past the configured limit gets excluded
+            // from new work entirely (unlike a lapsed subscription, which
+            // only softens to Basic) until they settle it via a
+            // CommissionPayment, since every extra trip just grows a debt
+            // they may never pay back.
+            ->leftJoin('wallets', 'wallets.driver_id', '=', 'drivers.id')
+            ->where(function ($q) {
+                $q->whereNull('wallets.commission_owed')
+                    ->orWhere('wallets.commission_owed', '<=', $this->getSettingFloat('wallet.debt_limit', 50.0));
+            })
             ->leftJoin('schedules', function ($join) {
                 $join->on('schedules.user_id', '=', 'users.id')
                     ->where('schedules.order_id', 0);
@@ -110,6 +137,7 @@ trait MatchesDriverSchedules
                 'users.latitude as driver_live_lat',
                 'users.longitude as driver_live_lng',
                 'drivers.rating as driver_rating',
+                'drivers.pricing_zone_id as pricing_zone_id',
                 'drivers.base_fare_override as base_fare_override',
                 'drivers.price_per_km_override as price_per_km_override',
                 'drivers.detour_surcharge_override as detour_surcharge_override',
@@ -127,6 +155,28 @@ trait MatchesDriverSchedules
 
         $drivers = [];
         foreach ($driverRows as $driverRow) {
+            // A driver who has explicitly chosen a working zone (the
+            // dropdown on their own Pricing screen — `pricing_zone_id`)
+            // means "I only work within this area": skip them entirely for
+            // a trip that leaves it (e.g. a Sidon-zoned driver for a
+            // Sidon->Beirut trip), unless the pickup/destination pair is a
+            // recognized intercity route the platform has explicitly set up
+            // touching their zone. A driver who never picked a zone at all
+            // (null) stays fully unrestricted, unchanged from before this
+            // check existed.
+            if ($driverRow->pricing_zone_id !== null) {
+                $withinOwnZone = $zone !== null && $zone->id === $driverRow->pricing_zone_id
+                    && ($destinationZone === null || $destinationZone->id === $driverRow->pricing_zone_id);
+                $intercityTouchesOwnZone = $intercityRoute !== null && (
+                    ($zone !== null && $zone->id === $driverRow->pricing_zone_id)
+                    || ($destinationZone !== null && $destinationZone->id === $driverRow->pricing_zone_id)
+                );
+
+                if (!$withinOwnZone && !$intercityTouchesOwnZone) {
+                    continue;
+                }
+            }
+
             $driverRoute = $this->decodeRoutePoints($driverRow->route_points ?? null);
             if (empty($driverRoute) && $driverRow->start_lat !== null && $driverRow->destination_lat !== null) {
                 $driverRoute = [
@@ -314,9 +364,16 @@ trait MatchesDriverSchedules
             && $destinationProjection['distance_km'] <= $thresholdKm
             && $pickupProjection['route_position_km'] <= $destinationProjection['route_position_km'];
 
-        $detourKm = max(
-            0.0,
-            ($pickupProjection['distance_km'] + $destinationProjection['distance_km']) - $thresholdKm
+        // Uncapped, this scales with how far the matched driver's
+        // *registered route* happens to be from the trip — not a real
+        // detour at all for a driver whose Work Area is in an unrelated
+        // city, which used to turn an ordinary few-dollar intra-city fare
+        // into $20-$30+ purely from this term. Capping it keeps the
+        // surcharge meaningful (a genuine slight detour) without letting an
+        // irrelevant driver's distance blow up the price.
+        $detourKm = min(
+            $this->getMaxDetourKm(),
+            max(0.0, ($pickupProjection['distance_km'] + $destinationProjection['distance_km']) - $thresholdKm)
         );
 
         return [
@@ -639,6 +696,11 @@ trait MatchesDriverSchedules
     protected function getDetourSurchargePerKm(): float
     {
         return $this->getSettingFloat('fare.detour_surcharge_per_km', 0.25);
+    }
+
+    protected function getMaxDetourKm(): float
+    {
+        return $this->getSettingFloat('fare.max_detour_km', 5.0);
     }
 
     protected function getReservationMultiplier(): float

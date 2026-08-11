@@ -2,14 +2,23 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Admin\AuditLogController;
+use App\Http\Controllers\Admin\BroadcastController;
+use App\Http\Controllers\Admin\CommissionPaymentController;
 use App\Http\Controllers\Admin\ContactMessageController;
 use App\Http\Controllers\Admin\CustomerController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\DriverApplicationController as AdminDriverApplicationController;
 use App\Http\Controllers\Admin\DriverManagementController;
 use App\Http\Controllers\Admin\DriverSimulatorController;
+use App\Http\Controllers\Admin\DriverSubscriptionController;
+use App\Http\Controllers\Admin\FinancialReportController;
 use App\Http\Controllers\Admin\OrderOpsController;
+use App\Http\Controllers\Admin\SchoolBusPremiumSubscriptionController;
+use App\Http\Controllers\Admin\SchoolBusSubscriptionController;
+use App\Http\Controllers\Admin\SchoolController;
+use App\Http\Controllers\Admin\SubscriptionPlanController;
 use App\Http\Controllers\Admin\VehicleCategoryController;
+use App\Http\Controllers\Admin\WalletController;
 use App\Http\Controllers\ContactController;
 use App\Http\Controllers\DriverApplicationController;
 use App\Http\Controllers\LandingController;
@@ -96,6 +105,7 @@ Route::group(['prefix' => 'admin'], function () {
     Route::middleware(['web', 'auth', 'permission:drivers.manage'])->group(function () {
         Route::post('/driver-management', [DriverManagementController::class, 'store'])->name('admin.drivers.store');
         Route::post('/driver-management/{driver}/approval', [DriverManagementController::class, 'updateApprovalStatus'])->name('admin.drivers.update-approval');
+        Route::post('/driver-management/{driver}/school-bus-status', [DriverManagementController::class, 'updateSchoolBusStatus'])->name('admin.drivers.update-school-bus-status');
         Route::post('/driver-management/{driver}/vehicle', [DriverManagementController::class, 'updateVehicle'])->name('admin.drivers.update-vehicle');
         Route::post('/driver-management/{driver}/documents', [DriverManagementController::class, 'uploadDocument'])->name('admin.drivers.upload-document');
         Route::post('/driver-documents/{document}/review', [DriverManagementController::class, 'reviewDocument'])->name('admin.drivers.documents.review');
@@ -139,5 +149,58 @@ Route::group(['prefix' => 'admin'], function () {
 
     Route::middleware(['web', 'auth', 'permission:contact-messages.manage'])->group(function () {
         Route::delete('/contact-messages/{contactMessage}', [ContactMessageController::class, 'destroy'])->name('admin.contact-messages.destroy');
+    });
+
+    Route::middleware(['web', 'auth', 'permission:subscriptions.view'])->group(function () {
+        Route::get('/subscription-plans', [SubscriptionPlanController::class, 'index'])->name('admin.subscription-plans.index');
+        Route::get('/driver-subscriptions', [DriverSubscriptionController::class, 'index'])->name('admin.driver-subscriptions.index');
+        Route::get('/driver-subscriptions/{driverSubscription}', [DriverSubscriptionController::class, 'show'])->name('admin.driver-subscriptions.show');
+    });
+
+    Route::middleware(['web', 'auth', 'permission:subscriptions.manage'])->group(function () {
+        Route::post('/subscription-plans', [SubscriptionPlanController::class, 'store'])->name('admin.subscription-plans.store');
+        Route::put('/subscription-plans/{subscriptionPlan}', [SubscriptionPlanController::class, 'update'])->name('admin.subscription-plans.update');
+        Route::post('/driver-subscriptions/{driverSubscription}/approve', [DriverSubscriptionController::class, 'approve'])->name('admin.driver-subscriptions.approve');
+        Route::post('/driver-subscriptions/{driverSubscription}/reject', [DriverSubscriptionController::class, 'reject'])->name('admin.driver-subscriptions.reject');
+    });
+
+    Route::middleware(['web', 'auth', 'permission:school-bus.view'])->group(function () {
+        Route::get('/schools', [SchoolController::class, 'index'])->name('admin.schools.index');
+        Route::get('/school-bus-subscriptions', [SchoolBusSubscriptionController::class, 'index'])->name('admin.school-bus-subscriptions.index');
+        Route::get('/school-bus-subscriptions/{schoolBusSubscription}', [SchoolBusSubscriptionController::class, 'show'])->name('admin.school-bus-subscriptions.show');
+        Route::get('/school-bus-premium-subscriptions', [SchoolBusPremiumSubscriptionController::class, 'index'])->name('admin.school-bus-premium-subscriptions.index');
+        Route::get('/school-bus-premium-subscriptions/{schoolBusPremiumSubscription}', [SchoolBusPremiumSubscriptionController::class, 'show'])->name('admin.school-bus-premium-subscriptions.show');
+    });
+
+    Route::middleware(['web', 'auth', 'permission:school-bus.manage'])->group(function () {
+        Route::post('/schools', [SchoolController::class, 'store'])->name('admin.schools.store');
+        Route::put('/schools/{school}', [SchoolController::class, 'update'])->name('admin.schools.update');
+        Route::delete('/schools/{school}', [SchoolController::class, 'destroy'])->name('admin.schools.destroy');
+        Route::post('/school-bus-premium-subscriptions/{schoolBusPremiumSubscription}/approve', [SchoolBusPremiumSubscriptionController::class, 'approve'])->name('admin.school-bus-premium-subscriptions.approve');
+        Route::post('/school-bus-premium-subscriptions/{schoolBusPremiumSubscription}/reject', [SchoolBusPremiumSubscriptionController::class, 'reject'])->name('admin.school-bus-premium-subscriptions.reject');
+    });
+
+    Route::middleware(['web', 'auth', 'permission:wallet.view'])->group(function () {
+        Route::get('/wallet', [WalletController::class, 'index'])->name('admin.wallet.index');
+        Route::get('/wallet/{driver}', [WalletController::class, 'show'])->name('admin.wallet.show');
+        Route::get('/commission-payments', [CommissionPaymentController::class, 'index'])->name('admin.commission-payments.index');
+    });
+
+    Route::middleware(['web', 'auth', 'permission:wallet.manage'])->group(function () {
+        Route::post('/commission-payments/{commissionPayment}/approve', [CommissionPaymentController::class, 'approve'])->name('admin.commission-payments.approve');
+        Route::post('/commission-payments/{commissionPayment}/reject', [CommissionPaymentController::class, 'reject'])->name('admin.commission-payments.reject');
+        Route::post('/commission-payments/{commissionPayment}/notify', [CommissionPaymentController::class, 'notify'])->name('admin.commission-payments.notify');
+    });
+
+    Route::middleware(['web', 'auth', 'permission:broadcasts.view'])->group(function () {
+        Route::get('/broadcasts', [BroadcastController::class, 'index'])->name('admin.broadcasts.index');
+    });
+
+    Route::middleware(['web', 'auth', 'permission:broadcasts.manage'])->group(function () {
+        Route::post('/broadcasts', [BroadcastController::class, 'store'])->name('admin.broadcasts.store');
+    });
+
+    Route::middleware(['web', 'auth', 'permission:finance.view'])->group(function () {
+        Route::get('/financial-reports', [FinancialReportController::class, 'index'])->name('admin.financial-reports.index');
     });
 });

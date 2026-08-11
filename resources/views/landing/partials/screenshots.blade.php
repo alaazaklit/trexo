@@ -1,10 +1,10 @@
 @php
     $slides = [
-        ['image' => 'login', 'label' => __('landing.screenshots.slides.login')],
-        ['image' => 'home', 'label' => __('landing.screenshots.slides.home')],
-        ['image' => 'map', 'label' => __('landing.screenshots.slides.map')],
-        ['image' => 'schedule', 'label' => __('landing.screenshots.slides.schedule')],
-
+        ['image' => 'login', 'label' => __('landing.screenshots.slides.1')],
+        ['image' => 'home', 'label' => __('landing.screenshots.slides.2')],
+        ['image' => 'map', 'label' => __('landing.screenshots.slides.3')],
+        ['image' => 'schedule', 'label' => __('landing.screenshots.slides.4')],
+        ['image' => 'schedule', 'label' => __('landing.screenshots.slides.5')],
     ];
 @endphp
 

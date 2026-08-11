@@ -2,25 +2,15 @@
 
 return [
     'title' => 'Become a Driver',
-    'subtitle' => 'A quick, simple application — most drivers finish in under 2 minutes.',
+    'subtitle' => 'A quick, simple application — most drivers finish in under a minute.',
 
-    'progress' => [
-        'step' => 'Step :current of :total',
+    'showcase' => [
+        'title' => 'This is a real, working app',
+        'subtitle' => 'A quick look at what you\'ll be driving with once you\'re approved.',
     ],
 
-    'steps' => [
-        1 => [
-            'title' => 'Personal Information',
-            'description' => 'Tell us a bit about yourself.',
-        ],
-        2 => [
-            'title' => 'Driver Information',
-            'description' => 'Your license and vehicle details.',
-        ],
-        3 => [
-            'title' => 'Upload Documents',
-            'description' => 'Just the essentials — you can add more later if needed.',
-        ],
+    'errors' => [
+        'required' => 'This field is required.',
     ],
 
     'fields' => [
@@ -37,6 +27,8 @@ return [
         'vehicle_model' => 'Vehicle Model',
         'vehicle_year' => 'Vehicle Year',
         'plate_number' => 'Plate Number',
+        'plate_number_placeholder' => 'e.g. S 123456',
+        'plate_number_format_error' => 'Please include the plate symbol (letter) with the number, e.g. S 123456.',
         'national_id_front' => 'National ID (Front)',
         'driving_license_file' => 'Driving License',
         'vehicle_registration_file' => 'Vehicle Registration',
@@ -49,6 +41,7 @@ return [
     'service_types' => [
         'taxi' => 'Taxi',
         'delivery' => 'Delivery',
+        'bus' => 'School Bus',
     ],
 
     'vehicle_types' => [

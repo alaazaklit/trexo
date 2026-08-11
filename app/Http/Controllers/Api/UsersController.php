@@ -88,8 +88,13 @@ class UsersController extends Controller
             return $data;
         }
 
-        $baseUrl = rtrim($request?->getSchemeAndHttpHost() ?? url('/'), '/');
-        $data['avatar_url'] = $baseUrl . '/storage/' . ltrim($avatarPath, '/');
+        // Storage::disk('public')->url() builds from APP_URL (config/filesystems.php),
+        // which already accounts for the app living in a subdirectory
+        // (https://ramin7.sg-host.com/trexo/public) on the live host. Building
+        // this from just the incoming request's scheme+host instead silently
+        // dropped that subdirectory, producing an avatar_url that 404'd even
+        // though the file was saved correctly.
+        $data['avatar_url'] = Storage::disk('public')->url($avatarPath);
         return $data;
     }
 
@@ -224,7 +229,25 @@ class UsersController extends Controller
         if ($request->hasFile('profile_image')) {
             $image = $request->file('profile_image');
             $imageName = time() . '.' . $image->getClientOriginalExtension();
-            Storage::disk('public')->putFileAs('users', $image, $imageName);
+            $storedPath = Storage::disk('public')->putFileAs('users', $image, $imageName);
+
+            if ($storedPath === false) {
+                // putFileAs() returns false rather than throwing on failure
+                // (disk full, permissions, a transient hosting hiccup) — this
+                // used to fall through silently and still point $user->avatar
+                // at a file that was never written, leaving the client with a
+                // "successful" response and a permanently-404ing avatar URL.
+                Log::error('Profile image upload failed to write to storage', [
+                    'user_id' => $user->id ?? null,
+                    'original_name' => $image->getClientOriginalName(),
+                ]);
+
+                return response()->json([
+                    'result' => false,
+                    'message' => 'Failed to save the profile image, please try again.',
+                ], 500);
+            }
+
             $user->avatar = 'users/' . $imageName;
 
             Log::info('Profile image uploaded', [
@@ -233,7 +256,7 @@ class UsersController extends Controller
                 'extension' => $image->getClientOriginalExtension(),
                 'mime_type' => $image->getClientMimeType(),
                 'stored_avatar' => $user->avatar,
-                'public_url' => url('storage/' . $user->avatar),
+                'public_url' => Storage::disk('public')->url($user->avatar),
             ]);
         }
 

@@ -8,10 +8,12 @@ use App\Reservation;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Tymon\JWTAuth\Facades\JWTAuth;
 use App\Models\User;
 use App\Traits\MatchesDriverSchedules;
 use App\Services\Firebase\FcmMessagingService;
+use App\Services\Wallet\TransactionService;
 
 class ReservationController extends Controller
 {
@@ -367,6 +369,14 @@ class ReservationController extends Controller
 
         $driverId = $request->input('driver_id');
         $reservationId = $request->input('reservation_id');
+        // The fare shown to the seller for this candidate driver on the
+        // "choose driver" screen (computed by
+        // MatchesDriverSchedules::findMatchingDrivers) — persisted here,
+        // same convention as OrderController::ChooseDriver, so it's the
+        // same number shown everywhere afterwards (including the Transaction
+        // posted on completion) rather than recomputed later against
+        // possibly-changed driver settings.
+        $price = $request->input('price');
 
         $reservation = Reservation::where('id', $reservationId)
             ->where('seller_id', $user->id)
@@ -381,6 +391,9 @@ class ReservationController extends Controller
         // mirroring how orders wait for the driver's response before confirming.
         $reservation->driver_id = $driverId;
         $reservation->status = 'pending';
+        if (is_numeric($price)) {
+            $reservation->price = round((float) $price, 2);
+        }
         // Clear any acceptance left over from a previous driver — the app
         // shows chat/call to the seller based on this timestamp being set,
         // and a newly (re)assigned driver hasn't accepted anything yet.
@@ -424,22 +437,38 @@ class ReservationController extends Controller
             ], 404);
         }
 
+        // Fetched unconditionally (not just while actively trackable) so the
+        // reservation details map can always show a pickup/destination
+        // route preview, with live driver tracking layered on top only once
+        // the trip is actually underway.
+        $pickup = $reservation->pickup ?? [];
+        $destination = $reservation->destination ?? [];
+        $routeCoordinates = [
+            'start_address' => $pickup['address'] ?? null,
+            'destination_address' => $destination['address'] ?? null,
+            'start_lat' => isset($pickup['lat']) ? (float) $pickup['lat'] : null,
+            'start_lng' => isset($pickup['lng']) ? (float) $pickup['lng'] : null,
+            'destination_lat' => isset($destination['lat']) ? (float) $destination['lat'] : null,
+            'destination_lng' => isset($destination['lng']) ? (float) $destination['lng'] : null,
+        ];
+
         if (!$this->isReservationTrackableNow($reservation)) {
             return response()->json([
                 'result' => true,
                 'trackable' => false,
                 'status' => $reservation->status,
+                ...$routeCoordinates,
             ], 200);
         }
 
         $driver = User::find($reservation->driver_id);
-        $pickup = $reservation->pickup ?? [];
         if (!$driver || $driver->latitude === null || $driver->longitude === null || empty($pickup)) {
             return response()->json([
                 'result' => true,
                 'trackable' => false,
                 'status' => $reservation->status,
                 'message' => 'Driver location not available yet',
+                ...$routeCoordinates,
             ], 200);
         }
 
@@ -457,8 +486,6 @@ class ReservationController extends Controller
             'trackable' => true,
             'target' => 'pickup',
             'status' => $reservation->status,
-            'start_address' => $pickup['address'] ?? null,
-            'destination_address' => ($reservation->destination ?? [])['address'] ?? null,
             'target_lat' => (float) ($pickup['lat'] ?? 0),
             'target_lng' => (float) ($pickup['lng'] ?? 0),
             'driver_lat' => (float) $driver->latitude,
@@ -468,6 +495,7 @@ class ReservationController extends Controller
             'driver_last_seen_at' => optional($driver->last_seen_at)->toIso8601String(),
             'distance_remaining_km' => round($distanceKm, 3),
             'eta_minutes' => $etaMinutes,
+            ...$routeCoordinates,
         ], 200);
     }
 
@@ -542,6 +570,10 @@ class ReservationController extends Controller
         }
         $reservation->save();
 
+        if ($status === 'completed') {
+            $this->recordReservationTransaction($reservation);
+        }
+
         if ($status === 'accepted' && (int) $user->id === (int) $reservation->driver_id) {
             $this->notifyReservationParty(
                 (int) $reservation->seller_id,
@@ -558,5 +590,20 @@ class ReservationController extends Controller
             'message' => 'Reservation status has been updated',
             'data' => $reservation
         ], 201);
+    }
+
+    // Mirrors OrderController::recordOrderTransaction — best-effort so a
+    // bug here never blocks the reservation-completion response, since the
+    // reservation is already saved as completed by the time this runs.
+    private function recordReservationTransaction(Reservation $reservation): void
+    {
+        try {
+            app(TransactionService::class)->recordForReservation($reservation);
+        } catch (\Throwable $e) {
+            Log::error('Failed to record transaction for completed reservation', [
+                'reservation_id' => $reservation->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 }

@@ -17,7 +17,7 @@ class DriverManagementService
     public const DOCUMENT_TYPES = ['license', 'id_card', 'vehicle_registration', 'insurance'];
 
     /**
-     * @param array{search?: string, approval_status?: string, expiring_soon?: string} $filters
+     * @param array{search?: string, approval_status?: string, school_bus_status?: string, expiring_soon?: string} $filters
      */
     public function filtered(array $filters): LengthAwarePaginator
     {
@@ -32,6 +32,10 @@ class DriverManagementService
 
         if (!empty($filters['approval_status'])) {
             $query->where('approval_status', $filters['approval_status']);
+        }
+
+        if (!empty($filters['school_bus_status'])) {
+            $query->where('school_bus_status', $filters['school_bus_status']);
         }
 
         if (!empty($filters['expiring_soon'])) {
@@ -119,6 +123,16 @@ class DriverManagementService
         }
 
         $driver->approval_status = $status;
+        $driver->save();
+    }
+
+    public function updateSchoolBusStatus(Driver $driver, ?string $status): void
+    {
+        if ($status !== null && !in_array($status, Driver::SCHOOL_BUS_STATUSES, true)) {
+            throw new \InvalidArgumentException("Invalid school bus status: {$status}");
+        }
+
+        $driver->school_bus_status = $status;
         $driver->save();
     }
 

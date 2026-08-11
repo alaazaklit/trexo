@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Log;
 use TCG\Voyager\Models\Setting;
 use App\Services\Firebase\FcmMessagingService;
 use App\Services\Tracking\OrderTrackingRules;
+use App\Services\Wallet\TransactionService;
 use App\Traits\MatchesDriverSchedules;
 
 
@@ -39,6 +40,26 @@ const CANCELLATION_GRACE_SECONDS = 90;
 // actually wastes their time/fuel, as opposed to cancelling while still
 // `waiting_driver_response` (no one has committed yet).
 const ACTIVE_DRIVER_STATUSES = ['on_way', 'picked_up', 'in_transit'];
+
+// Posts the driver-earnings/Trexo-commission ledger row for a delivered
+// order. Called from both places that can write status='delivered'
+// (updateOrderStatus's manual transition and maybeAdvanceOrderStatus's GPS
+// auto-advance) — TransactionService's own unique-index guard makes
+// whichever one runs second a no-op rather than a duplicate posting.
+// Deliberately best-effort: a bug here must not block the order-completion
+// response itself, since the order is already saved as delivered by the
+// time this runs.
+private function recordOrderTransaction(Order $order): void
+{
+    try {
+        app(TransactionService::class)->recordForOrder($order);
+    } catch (\Throwable $e) {
+        Log::error('Failed to record transaction for delivered order', [
+            'order_id' => $order->id,
+            'error' => $e->getMessage(),
+        ]);
+    }
+}
 
 // Catches requests nobody ever responded to — the driver may have never
 // opened the app, so the client-side countdown alone can't be relied on.
@@ -636,6 +657,10 @@ function updateOrderStatus(Request $request, FcmMessagingService $Notification)
             );
         }
 
+        if ($status === 'delivered') {
+            $this->recordOrderTransaction($order);
+        }
+
         if ($status === 'failed_delivery' && (int) $user->id !== (int) $order->user_id) {
             $this->notifyOrderOwner(
                 (int) $order->user_id,
@@ -1066,6 +1091,10 @@ private function maybeAdvanceOrderStatus(
         'confirmations' => $state['count'],
     ]);
 
+    if ($nextStatus === 'delivered') {
+        $this->recordOrderTransaction($order);
+    }
+
     if ($nextStatus === 'delivered' && (int) $driver->id !== (int) $order->user_id) {
         $this->notifyOrderOwner(
             (int) $order->user_id,
@@ -1102,18 +1131,32 @@ public function getOrderTracking($orderId)
         ], 404);
     }
 
+    // Fetched unconditionally (not just while actively trackable) so the
+    // order details map can always show a pickup/destination route preview,
+    // with live driver tracking layered on top only once the trip is
+    // actually underway.
+    $addresses = Address::where('order_id', $order->id)->get()->keyBy('direction');
+    $startAddress = $addresses->get('start_address');
+    $destinationAddress = $addresses->get('destination_address');
+    $routeCoordinates = [
+        'start_address' => $startAddress->address_line1 ?? null,
+        'destination_address' => $destinationAddress->address_line1 ?? null,
+        'start_lat' => $startAddress ? (float) $startAddress->latitude : null,
+        'start_lng' => $startAddress ? (float) $startAddress->longitude : null,
+        'destination_lat' => $destinationAddress ? (float) $destinationAddress->latitude : null,
+        'destination_lng' => $destinationAddress ? (float) $destinationAddress->longitude : null,
+    ];
+
     if (!$order->driver_id || !in_array($order->status, self::TRACKING_ACTIVE_STATUSES, true)) {
         return response()->json([
             'result' => true,
             'trackable' => false,
             'status' => $order->status,
+            ...$routeCoordinates,
         ], 200);
     }
 
     $isPickupLeg = $order->status === 'on_way';
-    $addresses = Address::where('order_id', $order->id)->get()->keyBy('direction');
-    $startAddress = $addresses->get('start_address');
-    $destinationAddress = $addresses->get('destination_address');
     $targetAddress = $isPickupLeg ? $startAddress : $destinationAddress;
 
     if (!$targetAddress) {
@@ -1130,6 +1173,7 @@ public function getOrderTracking($orderId)
             'trackable' => false,
             'status' => $order->status,
             'message' => 'Driver location not available yet',
+            ...$routeCoordinates,
         ], 200);
     }
 
@@ -1180,8 +1224,6 @@ public function getOrderTracking($orderId)
         'trackable' => true,
         'target' => $isPickupLeg ? 'pickup' : 'destination',
         'status' => $order->status,
-        'start_address' => $startAddress->address_line1 ?? null,
-        'destination_address' => $destinationAddress->address_line1 ?? null,
         'target_lat' => (float) $targetAddress->latitude,
         'target_lng' => (float) $targetAddress->longitude,
         'driver_lat' => (float) $driver->latitude,
@@ -1195,6 +1237,7 @@ public function getOrderTracking($orderId)
         // them simply ignores them, same as any other new key.
         'seconds_since_last_driver_update' => $secondsSinceLastUpdate,
         'tracking_stale' => $inactivityLevel === 'stale',
+        ...$routeCoordinates,
     ], 200);
 }
 

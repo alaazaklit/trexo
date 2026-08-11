@@ -2,25 +2,15 @@
 
 return [
     'title' => 'انضم كسائق',
-    'subtitle' => 'طلب سريع وبسيط — معظم السائقين ينهونه في أقل من دقيقتين.',
+    'subtitle' => 'طلب التسجيل سريع وبسيط — أكمل معلوماتك خلال أقل من دقيقة.',
 
-    'progress' => [
-        'step' => 'الخطوة :current من :total',
+    'showcase' => [
+        'title' => '',
+        'subtitle' => '',
     ],
 
-    'steps' => [
-        1 => [
-            'title' => 'المعلومات الشخصية',
-            'description' => 'أخبرنا القليل عن نفسك.',
-        ],
-        2 => [
-            'title' => 'معلومات السائق',
-            'description' => 'تفاصيل رخصتك ومركبتك.',
-        ],
-        3 => [
-            'title' => 'رفع الوثائق',
-            'description' => 'فقط الأساسيات — يمكنك إضافة المزيد لاحقاً عند الحاجة.',
-        ],
+    'errors' => [
+        'required' => 'هذا الحقل مطلوب.',
     ],
 
     'fields' => [
@@ -37,6 +27,8 @@ return [
         'vehicle_model' => 'موديل المركبة',
         'vehicle_year' => 'سنة الصنع',
         'plate_number' => 'رقم اللوحة',
+        'plate_number_placeholder' => 'مثال: A 123456',
+        'plate_number_format_error' => 'يرجى إضافة رمز اللوحة (حرف) مع الرقم، مثال: A 123456.',
         'national_id_front' => 'الهوية الوطنية (الوجه الأمامي)',
         'driving_license_file' => 'رخصة القيادة',
         'vehicle_registration_file' => 'دفتر سيارة المركبة',
@@ -47,8 +39,9 @@ return [
     'optional' => 'اختياري',
 
     'service_types' => [
-        'taxi' => 'تكسي',
-        'delivery' => 'توصيل',
+        'taxi' => 'تاكسي',
+        'delivery' => 'ديلفري',
+        'bus' => 'باص مدرسة',
     ],
 
     'vehicle_types' => [
@@ -56,7 +49,7 @@ return [
         'van' => 'فان',
         'motorcycle' => 'دراجة نارية',
         'tuk_tuk' => 'توكتوك',
-        'truck' => 'شاحنة',
+        'bus' => 'باص',
     ],
 
     'cities' => [

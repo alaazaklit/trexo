@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
@@ -220,6 +221,15 @@ class MapProxyController extends Controller
         $validator = Validator::make($request->all(), [
             'input' => 'required|string|max:200',
             'language' => 'nullable|string|max:10',
+            'lat' => 'nullable|numeric',
+            'lng' => 'nullable|numeric',
+            'radius' => 'nullable|integer|min:1000|max:50000',
+            // '(regions)' biases toward neighborhoods/localities/areas
+            // rather than a specific address or point of interest — e.g.
+            // a school-bus route's pickup AREA, where "Haret Saida" is
+            // wanted, not one exact building on that street. Restricted to
+            // Google's own allowed autocomplete type-collection values.
+            'types' => 'nullable|string|in:geocode,address,establishment,(regions),(cities)',
         ]);
 
         if ($validator->fails()) {
@@ -231,13 +241,60 @@ class MapProxyController extends Controller
             return response()->json(['status' => 'REQUEST_DENIED', 'error_message' => 'Maps not configured'], 503);
         }
 
+        $input = trim($request->input('input'));
+        $language = $request->input('language', 'en');
+
+        // Location bias: a soft ranking hint (not a hard restriction, so a
+        // legitimate search outside the seller's immediate area still
+        // works) that stops a same-named place in another part of the
+        // country from outranking — or crowding out — the one actually near
+        // them (e.g. "Masjed Lsona" in Tripoli vs. the one in Saida).
+        $biasLat = $request->input('lat');
+        $biasLng = $request->input('lng');
+        $biasRadius = $request->input('radius', 50000);
+        $hasBias = $biasLat !== null && $biasLng !== null;
+        $types = $request->input('types');
+
+        // The bias coordinates drift by small amounts as the seller nudges
+        // the map (drags, re-centers), which would otherwise fragment the
+        // cache into near-duplicate entries for the same effective search —
+        // rounding to ~1km buckets keeps caching effective without the bias
+        // itself losing meaningful precision at a 50km-scale radius.
+        $cacheKeyParts = [mb_strtolower($input), $language, $types ?? ''];
+        if ($hasBias) {
+            $cacheKeyParts[] = round((float) $biasLat, 2) . ',' . round((float) $biasLng, 2) . ',' . $biasRadius;
+        }
+        $cacheKey = 'places_autocomplete:' . md5(implode('|', $cacheKeyParts));
+
+        $cached = Cache::get($cacheKey);
+        if ($cached !== null) {
+            return response($cached['body'], $cached['status'])
+                ->header('Content-Type', 'application/json');
+        }
+
         try {
-            $response = Http::timeout(8)->get('https://maps.googleapis.com/maps/api/place/autocomplete/json', [
-                'input' => $request->input('input'),
-                'language' => $request->input('language', 'en'),
+            $query = [
+                'input' => $input,
+                'language' => $language,
                 'components' => 'country:lb',
                 'key' => $apiKey,
-            ]);
+            ];
+            if ($hasBias) {
+                $query['location'] = $biasLat . ',' . $biasLng;
+                $query['radius'] = $biasRadius;
+            }
+            if (!empty($types)) {
+                $query['types'] = $types;
+            }
+
+            $response = Http::timeout(8)->get('https://maps.googleapis.com/maps/api/place/autocomplete/json', $query);
+
+            // Only cache a successful, well-formed response — a transient
+            // Google-side failure or quota error must not get "stuck" and
+            // keep being served back for the next several minutes.
+            if ($response->successful() && ($response->json('status') === 'OK' || $response->json('status') === 'ZERO_RESULTS')) {
+                Cache::put($cacheKey, ['body' => $response->body(), 'status' => $response->status()], now()->addMinutes(10));
+            }
 
             return response($response->body(), $response->status())
                 ->header('Content-Type', 'application/json');
@@ -264,11 +321,29 @@ class MapProxyController extends Controller
             return response()->json(['status' => 'REQUEST_DENIED', 'error_message' => 'Maps not configured'], 503);
         }
 
+        $placeId = $request->input('place_id');
+        // Unlike autocomplete text, a place_id's coordinates/name don't
+        // change between lookups, so this can be cached far longer — mainly
+        // helps popular/landmark places that keep getting picked by
+        // different sellers, letting the client's post-selection lookup
+        // resolve instantly instead of waiting on another Google round-trip.
+        $cacheKey = 'place_details:' . $placeId;
+
+        $cached = Cache::get($cacheKey);
+        if ($cached !== null) {
+            return response($cached['body'], $cached['status'])
+                ->header('Content-Type', 'application/json');
+        }
+
         try {
             $response = Http::timeout(8)->get('https://maps.googleapis.com/maps/api/place/details/json', [
-                'placeid' => $request->input('place_id'),
+                'placeid' => $placeId,
                 'key' => $apiKey,
             ]);
+
+            if ($response->successful() && $response->json('status') === 'OK') {
+                Cache::put($cacheKey, ['body' => $response->body(), 'status' => $response->status()], now()->addHours(6));
+            }
 
             return response($response->body(), $response->status())
                 ->header('Content-Type', 'application/json');

@@ -73,7 +73,7 @@ a {
     border: 2px solid var(--ad-primary);
     color: var(--ad-primary);
     border-radius: 999px;
-    padding: 0.7rem 1.7rem;
+    padding: 0.7rem 1rem !important;
     font-weight: 600;
     transition: transform 0.15s ease, background-color 0.15s ease, color 0.15s ease;
 }
@@ -86,7 +86,7 @@ a {
 }
 
 .section {
-    padding: clamp(3.5rem, 6vw, 6rem) 0;
+    padding: clamp(1.5rem, 6vw, 6rem) 0;
 }
 
 .section-heading .eyebrow {
@@ -252,7 +252,7 @@ a {
     background: #fff;
     border-radius: 30px;
     overflow: hidden;
-    aspect-ratio: 10 / 19;
+    aspect-ratio: 9 / 19;
     display: flex;
     flex-direction: column;
 }
