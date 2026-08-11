@@ -22,6 +22,31 @@ if (root) {
 
     const sum = (obj) => Object.values(obj || {}).reduce((total, value) => total + Number(value || 0), 0);
 
+    const money = (value) => `$${Number(value || 0).toFixed(2)}`;
+
+    const renderTopDrivers = (topDrivers) => {
+        const body = document.getElementById('top-drivers-body');
+        if (!body) {
+            return;
+        }
+
+        if (!topDrivers || topDrivers.length === 0) {
+            body.innerHTML = '<tr><td colspan="4">No completed trips yet.</td></tr>';
+            return;
+        }
+
+        body.innerHTML = topDrivers
+            .map((row) => `
+                <tr>
+                    <td>${row.driver_name || '—'}</td>
+                    <td>${row.completed_orders}</td>
+                    <td>${money(row.total_earnings)}</td>
+                    <td>${row.rating !== null ? row.rating : '—'}</td>
+                </tr>
+            `)
+            .join('');
+    };
+
     const renderVolumeChart = (trend) => {
         const ctx = document.getElementById('volume-trend-chart');
         if (!ctx) {
@@ -140,8 +165,18 @@ if (root) {
             setStat('stat-completed', sum(data.completed_orders));
             setStat('stat-cancellations', sum(data.cancellations));
 
+            setStat('stat-revenue-today', money(data.revenue.today));
+            setStat('stat-revenue-month', money(data.revenue.this_month));
+            setStat('stat-revenue-alltime', money(data.revenue.all_time));
+
+            setStat('stat-subs-plus', data.subscriptions.by_plan.plus || 0);
+            setStat('stat-subs-pending', data.subscriptions.pending);
+            setStat('stat-subs-lapsed', data.subscriptions.lapsed);
+            setStat('stat-commission-owed', money(data.commission_owed_total));
+
             renderVolumeChart(data.volume_trend);
             renderCancellationsChart(data.cancellations);
+            renderTopDrivers(data.top_drivers);
         } catch (error) {
             // eslint-disable-next-line no-console
             console.error('Dashboard refresh failed', error);

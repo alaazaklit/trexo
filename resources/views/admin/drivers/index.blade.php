@@ -47,6 +47,14 @@
                         </select>
                     </div>
                     <div class="form-group" style="margin-right: 10px;">
+                        <select name="school_bus_status" class="form-control">
+                            <option value="">School bus: any</option>
+                            @foreach ($schoolBusStatuses as $status)
+                                <option value="{{ $status }}" @selected(($filters['school_bus_status'] ?? null) === $status)>School bus: {{ ucfirst($status) }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div class="form-group" style="margin-right: 10px;">
                         <label><input type="checkbox" name="expiring_soon" value="1" @checked(!empty($filters['expiring_soon']))> Documents expiring within 30 days</label>
                     </div>
                     <button type="submit" class="btn btn-primary">Filter</button>
@@ -64,6 +72,7 @@
                             <th>Phone</th>
                             <th>Online</th>
                             <th>Approval</th>
+                            <th>School Bus</th>
                             <th>Rating</th>
                             <th></th>
                         </tr>
@@ -79,6 +88,15 @@
                                         {{ ucfirst($driver->approval_status) }}
                                     </span>
                                 </td>
+                                <td>
+                                    @if ($driver->school_bus_status)
+                                        <span class="label label-{{ $driver->school_bus_status === 'approved' ? 'success' : ($driver->school_bus_status === 'pending' ? 'default' : 'danger') }}">
+                                            {{ ucfirst($driver->school_bus_status) }}
+                                        </span>
+                                    @else
+                                        <span class="text-muted">—</span>
+                                    @endif
+                                </td>
                                 <td>{{ $driver->rating }}</td>
                                 <td>
                                     <a href="{{ route('admin.drivers.show', $driver) }}" class="btn btn-sm btn-default">View</a>
@@ -86,7 +104,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="6" class="text-center">No drivers match these filters.</td>
+                                <td colspan="7" class="text-center">No drivers match these filters.</td>
                             </tr>
                         @endforelse
                     </tbody>

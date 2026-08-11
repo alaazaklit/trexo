@@ -3,6 +3,7 @@
 namespace App;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\Transaction;
 use App\Models\User;
 
 
@@ -46,6 +47,11 @@ class Order extends Model
     public function endAddress()
     {
         return $this->hasOne(Address::class, 'order_id')->where('direction', 'destination_address');
+    }
+
+    public function transaction()
+    {
+        return $this->hasOne(Transaction::class);
     }
 
     /**

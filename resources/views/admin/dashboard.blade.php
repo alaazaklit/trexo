@@ -40,20 +40,33 @@
                 <div class="dashboard-stat__label">Cancellations</div>
                 <div class="dashboard-stat__value" id="stat-cancellations">—</div>
             </div>
-            <div class="dashboard-stat dashboard-stat--disabled">
-                <div class="dashboard-stat__label">Revenue</div>
-                <div class="dashboard-stat__value">N/A</div>
-                <div class="dashboard-stat__note">Requires order pricing data, not yet tracked</div>
+            <div class="dashboard-stat">
+                <div class="dashboard-stat__label">Trexo Revenue Today</div>
+                <div class="dashboard-stat__value" id="stat-revenue-today">—</div>
             </div>
-            <div class="dashboard-stat dashboard-stat--disabled">
-                <div class="dashboard-stat__label">Commissions</div>
-                <div class="dashboard-stat__value">N/A</div>
-                <div class="dashboard-stat__note">Requires order pricing data, not yet tracked</div>
+            <div class="dashboard-stat">
+                <div class="dashboard-stat__label">Trexo Revenue This Month</div>
+                <div class="dashboard-stat__value" id="stat-revenue-month">—</div>
             </div>
-            <div class="dashboard-stat dashboard-stat--disabled">
-                <div class="dashboard-stat__label">Payouts</div>
-                <div class="dashboard-stat__value">N/A</div>
-                <div class="dashboard-stat__note">Driver payouts not yet implemented</div>
+            <div class="dashboard-stat">
+                <div class="dashboard-stat__label">Trexo Revenue All Time</div>
+                <div class="dashboard-stat__value" id="stat-revenue-alltime">—</div>
+            </div>
+            <div class="dashboard-stat">
+                <div class="dashboard-stat__label">Plus Subscribers</div>
+                <div class="dashboard-stat__value" id="stat-subs-plus">—</div>
+            </div>
+            <div class="dashboard-stat">
+                <div class="dashboard-stat__label">Pending Subscriptions</div>
+                <div class="dashboard-stat__value" id="stat-subs-pending">—</div>
+            </div>
+            <div class="dashboard-stat">
+                <div class="dashboard-stat__label">Lapsed Subscriptions</div>
+                <div class="dashboard-stat__value" id="stat-subs-lapsed">—</div>
+            </div>
+            <div class="dashboard-stat">
+                <div class="dashboard-stat__label">Total Commission Owed</div>
+                <div class="dashboard-stat__value" id="stat-commission-owed">—</div>
             </div>
         </div>
 
@@ -72,6 +85,27 @@
             </div>
             <div class="panel-body">
                 <canvas id="cancellations-chart" height="90"></canvas>
+            </div>
+        </div>
+
+        <div class="panel panel-bordered">
+            <div class="panel-heading">
+                <h3>Top Drivers by Earnings</h3>
+            </div>
+            <div class="panel-body">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Driver</th>
+                            <th>Completed Orders</th>
+                            <th>Total Earnings</th>
+                            <th>Rating</th>
+                        </tr>
+                    </thead>
+                    <tbody id="top-drivers-body">
+                        <tr><td colspan="4">Loading…</td></tr>
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>

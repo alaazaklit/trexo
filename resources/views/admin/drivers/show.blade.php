@@ -35,6 +35,24 @@
                     </div>
                 </div>
 
+                <div class="panel panel-bordered">
+                    <div class="panel-heading"><h3>School Bus Status</h3></div>
+                    <div class="panel-body">
+                        <form method="POST" action="{{ route('admin.drivers.update-school-bus-status', $driver) }}">
+                            @csrf
+                            <div class="form-group">
+                                <select name="school_bus_status" class="form-control">
+                                    <option value="" @selected($driver->school_bus_status === null)>— Not enrolled —</option>
+                                    @foreach ($schoolBusStatuses as $status)
+                                        <option value="{{ $status }}" @selected($driver->school_bus_status === $status)>{{ ucfirst($status) }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                            <button type="submit" class="btn btn-primary">Update School Bus Status</button>
+                        </form>
+                    </div>
+                </div>
+
                 <div class="panel panel-bordered panel-danger">
                     <div class="panel-heading"><h3>Remove Driver Record</h3></div>
                     <div class="panel-body">

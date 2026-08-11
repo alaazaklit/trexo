@@ -19,13 +19,14 @@ class DriverManagementController extends Controller
 
     public function index(Request $request): View
     {
-        $filters = $request->only(['search', 'approval_status', 'expiring_soon']);
+        $filters = $request->only(['search', 'approval_status', 'school_bus_status', 'expiring_soon']);
 
         return view('admin.drivers.index', [
             'pageTitle' => 'Drivers',
             'drivers' => $this->service->filtered($filters),
             'filters' => $filters,
             'statuses' => DriverManagementService::APPROVAL_STATUSES,
+            'schoolBusStatuses' => Driver::SCHOOL_BUS_STATUSES,
         ]);
     }
 
@@ -38,6 +39,7 @@ class DriverManagementController extends Controller
             'driver' => $driver,
             'trips' => $this->service->tripHistory($driver),
             'statuses' => DriverManagementService::APPROVAL_STATUSES,
+            'schoolBusStatuses' => Driver::SCHOOL_BUS_STATUSES,
             'documentTypes' => DriverManagementService::DOCUMENT_TYPES,
             'vehicleCategories' => VehicleCategory::orderBy('name')->get(),
         ]);
@@ -72,6 +74,17 @@ class DriverManagementController extends Controller
         $this->service->updateApprovalStatus($driver, $data['approval_status']);
 
         return back()->with('success', 'Driver approval status updated.');
+    }
+
+    public function updateSchoolBusStatus(Request $request, Driver $driver): RedirectResponse
+    {
+        $data = $request->validate([
+            'school_bus_status' => 'nullable|in:'.implode(',', Driver::SCHOOL_BUS_STATUSES),
+        ]);
+
+        $this->service->updateSchoolBusStatus($driver, $data['school_bus_status'] ?? null);
+
+        return back()->with('success', 'School bus status updated.');
     }
 
     public function uploadDocument(Request $request, Driver $driver): RedirectResponse

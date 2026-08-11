@@ -4,7 +4,7 @@
 @section('meta_description', __('landing.meta.description'))
 
 @section('content')
-dddddddddddddddddd
+
     @include('landing.partials.hero')
     @include('landing.partials.services')
     @include('landing.partials.how-it-works')

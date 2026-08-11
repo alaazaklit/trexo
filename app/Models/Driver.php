@@ -6,10 +6,16 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Driver extends Model
 {
     use HasFactory;
+
+    // A driver opts into the school-bus service independently of their
+    // taxi/delivery approval_status — see the migration for why this is a
+    // separate column rather than reusing approval_status.
+    public const SCHOOL_BUS_STATUSES = ['pending', 'approved', 'suspended', 'rejected'];
 
     protected $fillable = [
         'user_id',
@@ -26,6 +32,8 @@ class Driver extends Model
         'is_online',
         'status',
         'approval_status',
+        'school_bus_status',
+        'school_bus_child_discount_percent',
         'vehicle_type',
         'vehicle_make',
         'vehicle_model',
@@ -61,6 +69,7 @@ class Driver extends Model
         'price_per_km_override' => 'decimal:2',
         'detour_surcharge_override' => 'decimal:2',
         'reservation_multiplier_override' => 'decimal:2',
+        'school_bus_child_discount_percent' => 'decimal:2',
         'is_online' => 'boolean',
         'vehicle_year' => 'integer',
         'speed_kmh' => 'decimal:2',
@@ -99,5 +108,59 @@ class Driver extends Model
     public function documents(): HasMany
     {
         return $this->hasMany(DriverDocument::class);
+    }
+
+    public function subscriptions(): HasMany
+    {
+        return $this->hasMany(DriverSubscription::class);
+    }
+
+    public function wallet(): HasOne
+    {
+        return $this->hasOne(Wallet::class);
+    }
+
+    public function transactions(): HasMany
+    {
+        return $this->hasMany(Transaction::class);
+    }
+
+    public function commissionPayments(): HasMany
+    {
+        return $this->hasMany(CommissionPayment::class);
+    }
+
+    public function schoolBusRoutes(): HasMany
+    {
+        return $this->hasMany(SchoolBusRoute::class);
+    }
+
+    public function schoolBusSubscriptions(): HasMany
+    {
+        return $this->hasMany(SchoolBusSubscription::class);
+    }
+
+    // Every driver needs a Basic subscription + wallet row to exist from
+    // the moment they're created — several other places (fare-splitting on
+    // order completion, the matching-query fallback) assume a subscription
+    // row is always there rather than null-checking. Hooking model-level
+    // `created` instead of each of the several places that do
+    // `Driver::create(...)` means no future creation path can forget this.
+    protected static function booted(): void
+    {
+        static::created(function (Driver $driver) {
+            $basic = SubscriptionPlan::where('slug', 'basic')->first();
+            if ($basic !== null) {
+                $driver->subscriptions()->create([
+                    'plan_id' => $basic->id,
+                    'commission_percentage_snapshot' => $basic->commission_percentage,
+                    'start_date' => now()->toDateString(),
+                    'payment_status' => 'approved',
+                    'reviewed_at' => now(),
+                ]);
+            }
+
+            $driver->wallet()->create(['commission_owed' => 0]);
+        });
     }
 }

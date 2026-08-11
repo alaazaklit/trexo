@@ -96,6 +96,8 @@ Route::get('/maps/places-nearby', [App\Http\Controllers\Api\MapProxyController::
 Route::get('/maps/place-autocomplete', [App\Http\Controllers\Api\MapProxyController::class, 'placeAutocomplete'])->name('mapsPlaceAutocomplete');
 Route::get('/maps/place-details', [App\Http\Controllers\Api\MapProxyController::class, 'placeDetails'])->name('mapsPlaceDetails');
 
+Route::get('/exchange-rate', [App\Http\Controllers\Api\SettingsController::class, 'exchangeRate'])->name('exchangeRate');
+
 ////RESERVATIONS////////
 Route::post('/create-reservation', [App\Http\Controllers\Api\ReservationController::class, 'createReservation'])->name('createReservation');
 Route::get('/getReservations', [App\Http\Controllers\Api\ReservationController::class, 'getReservations'])->name('getReservations');
@@ -129,6 +131,48 @@ Route::get('/getReservationMessages/{reservation_id}', [App\Http\Controllers\Api
 
 ////Reservation call (Agora in-app voice)////////
 Route::post('/initiateReservationCall', [App\Http\Controllers\Api\ReservationCallController::class, 'initiateCall'])->name('initiateReservationCall');
+
+////Driver subscriptions////////
+Route::get('/subscription-plans', [App\Http\Controllers\Api\DriverSubscriptionController::class, 'plans'])->name('subscriptionPlans');
+Route::get('/driver/subscription', [App\Http\Controllers\Api\DriverSubscriptionController::class, 'current'])->name('driverSubscriptionCurrent');
+Route::post('/driver/subscription/subscribe', [App\Http\Controllers\Api\DriverSubscriptionController::class, 'subscribe'])->name('driverSubscriptionSubscribe');
+
+////Driver wallet & earnings////////
+Route::get('/driver/wallet', [App\Http\Controllers\Api\WalletController::class, 'wallet'])->name('driverWallet');
+Route::get('/driver/transactions', [App\Http\Controllers\Api\WalletController::class, 'transactions'])->name('driverTransactions');
+Route::get('/driver/dashboard', [App\Http\Controllers\Api\WalletController::class, 'dashboard'])->name('driverFinanceDashboard');
+Route::get('/driver/financial-report', [App\Http\Controllers\Api\WalletController::class, 'financialReport'])->name('driverFinancialReport');
+Route::post('/driver/wallet/pay-commission', [App\Http\Controllers\Api\WalletController::class, 'submitCommissionPayment'])->name('driverWalletPayCommission');
+Route::get('/driver/wallet/commission-payments', [App\Http\Controllers\Api\WalletController::class, 'commissionPayments'])->name('driverWalletCommissionPayments');
+
+////School Bus////////
+// Driver-side: opting in, managing routes, and handling requests.
+Route::get('/driver/school-bus/status', [App\Http\Controllers\Api\SchoolBusRouteController::class, 'status'])->name('driverSchoolBusStatus');
+Route::post('/driver/school-bus/enable', [App\Http\Controllers\Api\SchoolBusRouteController::class, 'enable'])->name('driverSchoolBusEnable');
+Route::put('/driver/school-bus/child-discount', [App\Http\Controllers\Api\SchoolBusRouteController::class, 'updateChildDiscount'])->name('driverSchoolBusChildDiscount');
+Route::post('/driver/school-bus/schools/resolve', [App\Http\Controllers\Api\SchoolController::class, 'resolveFromPlace'])->name('driverSchoolBusSchoolsResolve');
+Route::get('/driver/school-bus/routes', [App\Http\Controllers\Api\SchoolBusRouteController::class, 'index'])->name('driverSchoolBusRoutes');
+Route::post('/driver/school-bus/routes', [App\Http\Controllers\Api\SchoolBusRouteController::class, 'store'])->name('driverSchoolBusRoutesStore');
+Route::put('/driver/school-bus/routes/{route}', [App\Http\Controllers\Api\SchoolBusRouteController::class, 'update'])->name('driverSchoolBusRoutesUpdate');
+Route::delete('/driver/school-bus/routes/{route}', [App\Http\Controllers\Api\SchoolBusRouteController::class, 'destroy'])->name('driverSchoolBusRoutesDestroy');
+Route::get('/driver/school-bus/subscriptions', [App\Http\Controllers\Api\SchoolBusSubscriptionController::class, 'driverIndex'])->name('driverSchoolBusSubscriptions');
+Route::get('/driver/school-bus/subscriptions/counts', [App\Http\Controllers\Api\SchoolBusSubscriptionController::class, 'counts'])->name('driverSchoolBusSubscriptionCounts');
+Route::get('/driver/school-bus/subscriptions/{subscription}', [App\Http\Controllers\Api\SchoolBusSubscriptionController::class, 'show'])->name('driverSchoolBusSubscriptionShow');
+Route::post('/driver/school-bus/subscriptions/{subscription}/accept', [App\Http\Controllers\Api\SchoolBusSubscriptionController::class, 'accept'])->name('driverSchoolBusSubscriptionAccept');
+Route::post('/driver/school-bus/subscriptions/{subscription}/reject', [App\Http\Controllers\Api\SchoolBusSubscriptionController::class, 'reject'])->name('driverSchoolBusSubscriptionReject');
+Route::post('/driver/school-bus/subscriptions/{subscription}/event', [App\Http\Controllers\Api\SchoolBusSubscriptionController::class, 'event'])->name('driverSchoolBusSubscriptionEvent');
+
+// Parent-side: browsing schools/drivers/prices and submitting requests.
+Route::get('/schools', [App\Http\Controllers\Api\SchoolController::class, 'index'])->name('schoolsIndex');
+Route::get('/schools/{school}/pickup-areas', [App\Http\Controllers\Api\SchoolController::class, 'pickupAreasForSchool'])->name('schoolPickupAreas');
+Route::get('/schools/{school}/drivers', [App\Http\Controllers\Api\SchoolController::class, 'driversForSchool'])->name('schoolDrivers');
+Route::get('/drivers/{driver}/school-bus-routes', [App\Http\Controllers\Api\SchoolBusRouteController::class, 'forDriver'])->name('driverSchoolBusRoutesForDriver');
+Route::post('/school-bus/subscriptions', [App\Http\Controllers\Api\SchoolBusSubscriptionController::class, 'submit'])->name('schoolBusSubscriptionSubmit');
+Route::get('/school-bus/subscriptions', [App\Http\Controllers\Api\SchoolBusSubscriptionController::class, 'mine'])->name('schoolBusSubscriptionsMine');
+
+// Parent-side: School Bus Premium — paid add-on gating the proximity alert.
+Route::get('/school-bus/subscriptions/{subscription}/premium', [App\Http\Controllers\Api\SchoolBusPremiumController::class, 'status'])->name('schoolBusPremiumStatus');
+Route::post('/school-bus/subscriptions/{subscription}/premium/subscribe', [App\Http\Controllers\Api\SchoolBusPremiumController::class, 'subscribe'])->name('schoolBusPremiumSubscribe');
 
 
 Route::group(['middleware' => ['jwt.verify']], function() {

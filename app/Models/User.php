@@ -29,6 +29,7 @@ class User extends \TCG\Voyager\Models\User implements JWTSubject
         'speed_kmh',
         'last_seen_at',
         'is_simulated',
+        'language',
     ];
 
     protected $hidden = [
