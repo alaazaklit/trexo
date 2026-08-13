@@ -303,9 +303,12 @@ class ReservationController extends Controller
         ], 200);
     }
 
-    public function getReservationDrivers($reservationId)
+    public function getReservationDrivers(Request $request, $reservationId)
     {
         $user = JWTAuth::parseToken()->authenticate();
+        $genderFilter = in_array($request->query('gender'), ['male', 'female'], true)
+            ? $request->query('gender')
+            : null;
 
         $reservation = Reservation::where('seller_id', $user->id)
             ->where('id', $reservationId)
@@ -353,7 +356,8 @@ class ReservationController extends Controller
             $pickup['city'] ?? null,
             $pickup['region'] ?? null,
             $destination['city'] ?? null,
-            $destination['region'] ?? null
+            $destination['region'] ?? null,
+            $genderFilter
         );
 
         return response()->json([

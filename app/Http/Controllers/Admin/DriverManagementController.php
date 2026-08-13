@@ -19,7 +19,7 @@ class DriverManagementController extends Controller
 
     public function index(Request $request): View
     {
-        $filters = $request->only(['search', 'approval_status', 'school_bus_status', 'expiring_soon']);
+        $filters = $request->only(['search', 'approval_status', 'school_bus_status', 'expiring_soon', 'gender']);
 
         return view('admin.drivers.index', [
             'pageTitle' => 'Drivers',
@@ -117,6 +117,17 @@ class DriverManagementController extends Controller
         $this->service->deleteDocument($document);
 
         return back()->with('success', 'Document deleted.');
+    }
+
+    public function updateGender(Request $request, Driver $driver): RedirectResponse
+    {
+        $data = $request->validate([
+            'gender' => 'nullable|in:male,female',
+        ]);
+
+        $this->service->updateGender($driver, $data['gender'] ?? null);
+
+        return back()->with('success', 'Driver gender updated.');
     }
 
     public function updateVehicle(Request $request, Driver $driver): RedirectResponse

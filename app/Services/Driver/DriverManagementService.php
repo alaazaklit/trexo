@@ -17,7 +17,7 @@ class DriverManagementService
     public const DOCUMENT_TYPES = ['license', 'id_card', 'vehicle_registration', 'insurance'];
 
     /**
-     * @param array{search?: string, approval_status?: string, school_bus_status?: string, expiring_soon?: string} $filters
+     * @param array{search?: string, approval_status?: string, school_bus_status?: string, expiring_soon?: string, gender?: string} $filters
      */
     public function filtered(array $filters): LengthAwarePaginator
     {
@@ -27,6 +27,13 @@ class DriverManagementService
             $term = '%'.$filters['search'].'%';
             $query->whereHas('user', function ($q) use ($term) {
                 $q->where('name', 'like', $term)->orWhere('phone', 'like', $term);
+            });
+        }
+
+        if (!empty($filters['gender'])) {
+            $gender = $filters['gender'];
+            $query->whereHas('user', function ($q) use ($gender) {
+                $q->where('gender', $gender);
             });
         }
 
@@ -124,6 +131,16 @@ class DriverManagementService
 
         $driver->approval_status = $status;
         $driver->save();
+    }
+
+    public function updateGender(Driver $driver, ?string $gender): void
+    {
+        if ($gender !== null && !in_array($gender, ['male', 'female'], true)) {
+            throw new \InvalidArgumentException("Invalid gender: {$gender}");
+        }
+
+        $driver->user->gender = $gender;
+        $driver->user->save();
     }
 
     public function updateSchoolBusStatus(Driver $driver, ?string $status): void

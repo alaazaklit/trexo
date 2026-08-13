@@ -1242,9 +1242,12 @@ public function getOrderTracking($orderId)
 }
 
 ///////////////////////////////Drivers for Order////////////////////
-public function getOrderDrivers($orderId = 34)
+public function getOrderDrivers(Request $request, $orderId = 34)
 {
     $user = JWTAuth::parseToken()->authenticate();
+    $genderFilter = in_array($request->query('gender'), ['male', 'female'], true)
+        ? $request->query('gender')
+        : null;
 
     $order = Order::where('orders.user_id', $user->id)
         ->where('orders.id', $orderId)
@@ -1313,7 +1316,8 @@ public function getOrderDrivers($orderId = 34)
         $order->start_city,
         $order->start_region,
         $order->destination_city,
-        $order->destination_region
+        $order->destination_region,
+        $genderFilter
     );
 
     return response()->json([

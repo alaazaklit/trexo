@@ -169,6 +169,7 @@ class UsersController extends Controller
         'email' => 'nullable|email|unique:users,email,' . $user->id, // Allow email update while excluding the current user's email
         'phone' => 'nullable|string|max:255',
         'password' => 'nullable|string',
+        'gender' => 'nullable|in:male,female',
         'fcm_token' => 'nullable|string',
         'latitude' => 'nullable|numeric',
         'longitude' => 'nullable|numeric',
@@ -198,6 +199,10 @@ class UsersController extends Controller
 
         if ($request->filled('phone')) {
             $user->phone = $request->input('phone');
+        }
+
+        if ($request->filled('gender')) {
+            $user->gender = $request->input('gender');
         }
 
         $user->name = $request->input('name');

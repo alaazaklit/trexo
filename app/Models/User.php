@@ -16,6 +16,7 @@ class User extends \TCG\Voyager\Models\User implements JWTSubject
         'phone',
         'password',
         'type',
+        'gender',
         'is_verified',
         'account_status',
         'status_reason',

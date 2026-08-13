@@ -37,7 +37,8 @@ trait MatchesDriverSchedules
         ?string $pickupCity = null,
         ?string $pickupRegion = null,
         ?string $destinationCity = null,
-        ?string $destinationRegion = null
+        ?string $destinationRegion = null,
+        ?string $genderFilter = null
     ): array {
         // Resolved once per request (not per driver) — the pickup location
         // doesn't change per candidate, only which driver-specific override
@@ -92,6 +93,9 @@ trait MatchesDriverSchedules
             ->where('users.type', 'driver')
             ->where('users.is_available', true)
             ->whereNull('users.deleted_at')
+            ->when($genderFilter !== null, function ($q) use ($genderFilter) {
+                $q->where('users.gender', $genderFilter);
+            })
             ->where(function ($q) {
                 $q->whereNull('drivers.approval_status')->orWhere('drivers.approval_status', 'approved');
             })
@@ -133,6 +137,7 @@ trait MatchesDriverSchedules
                 'users.name as driver_name',
                 'users.avatar as driver_avatar',
                 'users.phone as driver_phone',
+                'users.gender as driver_gender',
                 'users.fcm_token as fcm_token',
                 'users.latitude as driver_live_lat',
                 'users.longitude as driver_live_lng',
@@ -241,6 +246,7 @@ trait MatchesDriverSchedules
                 'driver_name' => $driverRow->driver_name,
                 'driver_avatar' => $driverRow->driver_avatar,
                 'driver_phone' => $driverRow->driver_phone,
+                'driver_gender' => $driverRow->driver_gender,
                 'fcm_token' => $driverRow->fcm_token,
                 'driver_rating' => $this->normalizeRating($driverRow->driver_rating),
                 'price' => round($price, 2),

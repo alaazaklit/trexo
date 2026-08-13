@@ -107,6 +107,7 @@ Route::group(['prefix' => 'admin'], function () {
         Route::post('/driver-management/{driver}/approval', [DriverManagementController::class, 'updateApprovalStatus'])->name('admin.drivers.update-approval');
         Route::post('/driver-management/{driver}/school-bus-status', [DriverManagementController::class, 'updateSchoolBusStatus'])->name('admin.drivers.update-school-bus-status');
         Route::post('/driver-management/{driver}/vehicle', [DriverManagementController::class, 'updateVehicle'])->name('admin.drivers.update-vehicle');
+        Route::post('/driver-management/{driver}/gender', [DriverManagementController::class, 'updateGender'])->name('admin.drivers.update-gender');
         Route::post('/driver-management/{driver}/documents', [DriverManagementController::class, 'uploadDocument'])->name('admin.drivers.upload-document');
         Route::post('/driver-documents/{document}/review', [DriverManagementController::class, 'reviewDocument'])->name('admin.drivers.documents.review');
         Route::delete('/driver-documents/{document}', [DriverManagementController::class, 'deleteDocument'])->name('admin.drivers.documents.destroy');

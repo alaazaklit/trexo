@@ -50,6 +50,7 @@ class DriverProfileController extends Controller
                     'id' => $user->id,
                     'name' => $user->name,
                     'avatar' => $user->avatar,
+                    'gender' => $user->gender,
                 ],
                 'driver' => [
                     'rating' => $driver->rating ?? 0,

@@ -36,6 +36,24 @@
                 </div>
 
                 <div class="panel panel-bordered">
+                    <div class="panel-heading"><h3>Gender</h3></div>
+                    <div class="panel-body">
+                        <p class="text-muted">Sellers can filter/see this driver as a female driver when set.</p>
+                        <form method="POST" action="{{ route('admin.drivers.update-gender', $driver) }}">
+                            @csrf
+                            <div class="form-group">
+                                <select name="gender" class="form-control">
+                                    <option value="" @selected($driver->user->gender === null)>— Not set —</option>
+                                    <option value="male" @selected($driver->user->gender === 'male')>Male</option>
+                                    <option value="female" @selected($driver->user->gender === 'female')>Female</option>
+                                </select>
+                            </div>
+                            <button type="submit" class="btn btn-primary">Update Gender</button>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="panel panel-bordered">
                     <div class="panel-heading"><h3>School Bus Status</h3></div>
                     <div class="panel-body">
                         <form method="POST" action="{{ route('admin.drivers.update-school-bus-status', $driver) }}">
