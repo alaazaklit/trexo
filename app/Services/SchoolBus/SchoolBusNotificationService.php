@@ -13,15 +13,39 @@ class SchoolBusNotificationService
     // Titles/messages for the driver's quick-action buttons (keys are what
     // the Flutter app sends as `event` on POST .../subscriptions/{id}/event),
     // plus `proximity_alert`, sent automatically by the
-    // school-bus:check-proximity command instead of a driver tap.
+    // school-bus:check-proximity command instead of a driver tap. Localized
+    // the same way as notifyDriverNewRequest()/notifyParentAccepted() below —
+    // these fire far more often than either of those, so they were the most
+    // visible source of English notifications reaching Arabic-language users.
     public const EVENTS = [
-        'on_the_way' => ['title' => 'Bus is on the way', 'message' => 'The school bus is on its way to the pickup area.'],
-        'arrived' => ['title' => 'Bus has arrived', 'message' => 'The school bus has arrived at the pickup area.'],
-        'boarded' => ['title' => 'Student boarded the bus', 'message' => 'Your child has boarded the bus.'],
-        'arrived_at_school' => ['title' => 'Student arrived at school', 'message' => 'Your child has arrived at school.'],
-        'left_school' => ['title' => 'Student left school', 'message' => 'Your child has left school and is on the bus home.'],
-        'arrived_home' => ['title' => 'Student arrived home', 'message' => 'Your child has arrived home.'],
-        'proximity_alert' => ['title' => 'Bus arriving soon', 'message' => 'The school bus is about 2 minutes away. Please have your child ready.'],
+        'on_the_way' => [
+            'en' => ['title' => 'Bus is on the way', 'message' => 'The school bus is on its way to the pickup area.'],
+            'ar' => ['title' => 'الباص في الطريق', 'message' => 'الباص المدرسي في طريقه إلى نقطة الانطلاق.'],
+        ],
+        'arrived' => [
+            'en' => ['title' => 'Bus has arrived', 'message' => 'The school bus has arrived at the pickup area.'],
+            'ar' => ['title' => 'وصل الباص', 'message' => 'وصل الباص المدرسي إلى نقطة الانطلاق.'],
+        ],
+        'boarded' => [
+            'en' => ['title' => 'Student boarded the bus', 'message' => 'Your child has boarded the bus.'],
+            'ar' => ['title' => 'صعد الطالب إلى الباص', 'message' => 'صعد طفلك إلى الباص.'],
+        ],
+        'arrived_at_school' => [
+            'en' => ['title' => 'Student arrived at school', 'message' => 'Your child has arrived at school.'],
+            'ar' => ['title' => 'وصل الطالب إلى المدرسة', 'message' => 'وصل طفلك إلى المدرسة.'],
+        ],
+        'left_school' => [
+            'en' => ['title' => 'Student left school', 'message' => 'Your child has left school and is on the bus home.'],
+            'ar' => ['title' => 'غادر الطالب المدرسة', 'message' => 'غادر طفلك المدرسة وهو الآن في الباص عائدًا إلى المنزل.'],
+        ],
+        'arrived_home' => [
+            'en' => ['title' => 'Student arrived home', 'message' => 'Your child has arrived home.'],
+            'ar' => ['title' => 'وصل الطالب إلى المنزل', 'message' => 'وصل طفلك إلى المنزل.'],
+        ],
+        'proximity_alert' => [
+            'en' => ['title' => 'Bus arriving soon', 'message' => 'The school bus is about 2 minutes away. Please have your child ready.'],
+            'ar' => ['title' => 'الباص يقترب', 'message' => 'الباص المدرسي على بعد دقيقتين تقريبًا. يرجى تجهيز طفلك.'],
+        ],
     ];
 
     public function __construct(private readonly FcmMessagingService $fcm)
@@ -34,7 +58,12 @@ class SchoolBusNotificationService
             throw new \InvalidArgumentException("Invalid school bus event: {$event}");
         }
 
-        $copy = self::EVENTS[$event];
+        $recipient = $subscription->relationLoaded('parentUser')
+            ? $subscription->parentUser
+            : User::find($subscription->parent_user_id);
+        $locale = $recipient?->language === 'ar' ? 'ar' : 'en';
+
+        $copy = self::EVENTS[$event][$locale];
         $this->notifyParent($subscription, $event, $copy['title'], $copy['message']);
     }
 
@@ -117,13 +146,12 @@ class SchoolBusNotificationService
         }
     }
 
-    // "New request" is the one driver-facing notification whose copy needs
-    // localizing — everyone else in EVENTS is a fixed, translation-free
-    // constant, but this one embeds the parent/student/pickup-area names at
-    // send time. users.language is synced opportunistically from a couple
-    // of driver-facing endpoints (see SchoolBusRouteController::
-    // syncLanguage()) since the backend has no other way to know the
-    // driver's app language when this fires.
+    // "New request" is the one driver-facing notification that isn't a fixed
+    // EVENTS entry — it embeds the parent/student/pickup-area names at send
+    // time, so it's localized here instead. users.language is synced
+    // opportunistically from a couple of driver-facing endpoints (see
+    // SchoolBusRouteController::syncLanguage()) since the backend has no
+    // other way to know the driver's app language when this fires.
     public function notifyDriverNewRequest(SchoolBusSubscription $subscription, string $parentName, string $studentName, string $pickupArea): void
     {
         $driver = $subscription->relationLoaded('driver')

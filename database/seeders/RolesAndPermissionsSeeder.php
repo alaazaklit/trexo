@@ -37,6 +37,9 @@ class RolesAndPermissionsSeeder extends Seeder
         'school-bus.manage',
         'broadcasts.view',
         'broadcasts.manage',
+        'pricing.view',
+        'pricing.manage',
+        'request-reports.view',
     ];
 
     private const ROLE_PERMISSIONS = [
@@ -49,6 +52,8 @@ class RolesAndPermissionsSeeder extends Seeder
             'driver-applications.view', 'driver-applications.manage',
             'subscriptions.view', 'wallet.view',
             'school-bus.view', 'school-bus.manage',
+            'pricing.view', 'pricing.manage',
+            'request-reports.view',
         ],
         'Finance' => [
             'dashboard.view', 'finance.view',
@@ -59,6 +64,7 @@ class RolesAndPermissionsSeeder extends Seeder
             'orders.view', 'orders.manage',
             'customers.view', 'customers.manage',
             'contact-messages.view', 'contact-messages.manage',
+            'request-reports.view',
         ],
         'Marketing' => [
             'dashboard.view',

@@ -60,6 +60,28 @@ return [
         ],
     ],
 
+    'delete_account' => [
+        'title' => 'Delete Your Account',
+        'intro' => 'Enter the phone number on your Trexo account. We\'ll send a verification code via WhatsApp to confirm it\'s you before deleting your account and personal data.',
+        'phone_label' => 'Phone number',
+        'phone_placeholder' => 'e.g. 71234567',
+        'send_code' => 'Send verification code',
+        'otp_sent' => 'A verification code was sent via WhatsApp.',
+        'otp_label' => 'Verification code',
+        'otp_placeholder' => '6-digit code',
+        'otp_hint' => 'A code was sent via WhatsApp to :phone. It expires in 10 minutes.',
+        'confirm_button' => 'Permanently delete my account',
+        'resend' => 'Didn\'t get it? Send again',
+        'warning' => 'This cannot be undone. Your name, email, phone number, and profile photo will be permanently removed. Trip records are kept in anonymized form only where required by law.',
+        'deleted_title' => 'Your account has been deleted',
+        'deleted_body' => 'Your account and personal data have been removed. If you have questions, contact support@trexo.com.',
+        'errors' => [
+            'not_found' => 'No Trexo account is registered with this phone number.',
+            'wait' => 'Please wait :seconds seconds before requesting another code.',
+            'invalid_otp' => 'That code is incorrect or has expired.',
+        ],
+    ],
+
     'terms' => [
         'title' => 'Terms & Conditions',
         'updated_at' => 'Last updated: :date',

@@ -5,7 +5,9 @@ namespace App\Traits;
 use App\Models\DriverIntercityRouteOverride;
 use App\Models\IntercityRoute;
 use App\Models\PricingZone;
+use App\Services\Pricing\FareCalculator;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -52,6 +54,21 @@ trait MatchesDriverSchedules
         // the reservation round-trip multiplier still apply on top below.
         $destinationZone = $this->findPricingZone($destinationCity, $destinationRegion);
         $intercityRoute = $this->findIntercityRoute($zone, $destinationZone);
+
+        // Cross-zone/intercity per-km guardrail: only a genuine crossing
+        // between two *resolved, different* zones triggers it — same-zone
+        // trips, and trips where either side's zone couldn't be resolved at
+        // all, keep using the existing pickup-zone-only rate unchanged (see
+        // FareCalculator::effectivePerKmRate). This never overrides an
+        // intercity fixed fare above, which still short-circuits the whole
+        // distance formula first when configured.
+        $crossesZones = $zone !== null && $destinationZone !== null && $zone->id !== $destinationZone->id;
+
+        // Every quoted price is rounded to the nearest 20,000 LBP note
+        // before being shown to the seller (this app is cash-to-driver) —
+        // resolved once per request, same rate DriverProfileController's
+        // Test Price simulator and the app's exchange-rate endpoint use.
+        $lbpPerUsd = $this->getSettingFloat('pricing.exchange_rate_lbp_usd', 89500.0);
 
         // A driver can nudge the fare for a specific route they serve often
         // (see getIntercityFareBounds) — batched in one query up front
@@ -138,6 +155,7 @@ trait MatchesDriverSchedules
                 'users.avatar as driver_avatar',
                 'users.phone as driver_phone',
                 'users.gender as driver_gender',
+                'users.created_at as driver_created_at',
                 'users.fcm_token as fcm_token',
                 'users.latitude as driver_live_lat',
                 'users.longitude as driver_live_lng',
@@ -182,6 +200,36 @@ trait MatchesDriverSchedules
                 }
             }
 
+            // A driver can opt out of a specific long-distance route (per
+            // order kind, independently) even though their own zone
+            // touches it — e.g. they don't want the full Saida<->Beirut
+            // trip despite being zoned in Saida.
+            $routeOverride = $intercityRoute !== null
+                ? $intercityOverridesByUserId->get((int) $driverRow->driver_id)
+                : null;
+            if ($routeOverride !== null) {
+                $isActiveForOrderType = $orderType === 0
+                    ? $routeOverride->is_active_taxi
+                    : $routeOverride->is_active_delivery;
+                if ($isActiveForOrderType === false) {
+                    continue;
+                }
+            } elseif ($intercityRoute !== null) {
+                // No override row at all — this driver has never opened
+                // the Long-Distance Routes screen for this specific route.
+                // Grandfathered drivers (their account already existed when
+                // this opt-in requirement was introduced) stay eligible,
+                // unchanged from before this feature existed. A driver
+                // created from that cutoff onward must explicitly enable
+                // each route before showing up for it — new accounts start
+                // opted out, not in.
+                $cutoff = $this->getLongDistanceOptInCutoff();
+                if ($cutoff !== null && $driverRow->driver_created_at !== null
+                    && $driverRow->driver_created_at >= $cutoff) {
+                    continue;
+                }
+            }
+
             $driverRoute = $this->decodeRoutePoints($driverRow->route_points ?? null);
             if (empty($driverRoute) && $driverRow->start_lat !== null && $driverRow->destination_lat !== null) {
                 $driverRoute = [
@@ -207,7 +255,12 @@ trait MatchesDriverSchedules
                 : $this->getBaseFare($orderType, $zone);
             $normalPricePerKm = $driverRow->price_per_km_override !== null
                 ? (float) $driverRow->price_per_km_override
-                : $this->getNormalPricePerKm($orderType, $zone);
+                : FareCalculator::effectivePerKmRate(
+                    $this->getNormalPricePerKm($orderType, $zone),
+                    $this->getNormalPricePerKm($orderType, $destinationZone),
+                    $this->getNormalPricePerKm($orderType, null),
+                    $crossesZones
+                );
             $sharedRidePricePerKm = $normalPricePerKm * $this->getSettingFloat('fare.shared_multiplier', 0.70);
             $detourSurchargePerKm = $driverRow->detour_surcharge_override !== null
                 ? (float) $driverRow->detour_surcharge_override
@@ -224,7 +277,7 @@ trait MatchesDriverSchedules
 
             $intercityFixedFare = null;
             if ($intercityRoute !== null) {
-                $routeOverride = $intercityOverridesByUserId->get((int) $driverRow->driver_id);
+                // $routeOverride already resolved above, for the eligibility check.
                 $overrideFare = $routeOverride === null
                     ? null
                     : ($orderType === 0
@@ -235,11 +288,18 @@ trait MatchesDriverSchedules
                     : ($orderType === 0 ? $intercityRoute->fixed_fare_taxi : $intercityRoute->fixed_fare_delivery);
             }
 
-            $price = $intercityFixedFare !== null
-                ? (float) $intercityFixedFare
-                : $baseFare + ($passengerDistanceKm * ($match['on_route'] ? $sharedRidePricePerKm : $normalPricePerKm));
-            $price += $match['detour_km'] * $detourSurchargePerKm;
-            $price *= $reservationMultiplier;
+            $price = FareCalculator::calculate(
+                $baseFare,
+                $normalPricePerKm,
+                $sharedRidePricePerKm,
+                $detourSurchargePerKm,
+                $passengerDistanceKm,
+                $match['on_route'],
+                $match['detour_km'],
+                $reservationMultiplier,
+                $intercityFixedFare !== null ? (float) $intercityFixedFare : null
+            );
+            $price = FareCalculator::roundPriceUsdToNearestLbpNote($price, $lbpPerUsd);
 
             $drivers[] = [
                 'driver_id' => (int) $driverRow->driver_id,
@@ -249,7 +309,7 @@ trait MatchesDriverSchedules
                 'driver_gender' => $driverRow->driver_gender,
                 'fcm_token' => $driverRow->fcm_token,
                 'driver_rating' => $this->normalizeRating($driverRow->driver_rating),
-                'price' => round($price, 2),
+                'price' => $price,
                 'estimated_pickup_minutes' => $this->estimateRealPickupMinutes(
                     $driverRow,
                     $pickup,
@@ -636,6 +696,71 @@ trait MatchesDriverSchedules
         }
     }
 
+    /**
+     * City/administrative-region text for a coordinate, via Google's
+     * Geocoding API — the same signal a real order/reservation already
+     * carries (Order::start_city/start_region etc., geocoded client-side
+     * when the address was picked and stored on the `addresses` table).
+     * Needed only by DriverProfileController::testPrice(), which receives
+     * raw coordinates with no such stored text, so it can zone-match/
+     * intercity-match a pickup/destination pair the exact same way
+     * findMatchingDrivers() does. Cached briefly per ~11m coordinate
+     * bucket, same reasoning/precision as MapProxyController::reverseGeocode.
+     */
+    protected function resolveCityRegion(float $lat, float $lng): array
+    {
+        $apiKey = config('services.google_maps.key');
+        if (empty($apiKey)) {
+            return ['city' => null, 'region' => null];
+        }
+
+        $cacheKey = 'test_price_geocode:' . md5(round($lat, 4) . ',' . round($lng, 4));
+        $cached = Cache::get($cacheKey);
+        if ($cached !== null) {
+            return $cached;
+        }
+
+        try {
+            $response = Http::timeout(5)->get('https://maps.googleapis.com/maps/api/geocode/json', [
+                'latlng' => "{$lat},{$lng}",
+                'key' => $apiKey,
+            ]);
+
+            if (!$response->successful() || $response->json('status') !== 'OK') {
+                return ['city' => null, 'region' => null];
+            }
+
+            $city = null;
+            $region = null;
+            // Google fragments address components across several result
+            // entries for the same point — scan all of them, not just the
+            // first, same reasoning as address.dart's _findFirstAcrossResults.
+            foreach ($response->json('results', []) as $result) {
+                foreach ($result['address_components'] ?? [] as $component) {
+                    $types = $component['types'] ?? [];
+                    if ($city === null && in_array('locality', $types, true)) {
+                        $city = $component['long_name'] ?? null;
+                    }
+                    if ($region === null && in_array('administrative_area_level_1', $types, true)) {
+                        $region = $component['long_name'] ?? null;
+                    }
+                }
+                if ($city !== null && $region !== null) {
+                    break;
+                }
+            }
+
+            $resolved = ['city' => $city, 'region' => $region];
+            Cache::put($cacheKey, $resolved, now()->addMinutes(30));
+
+            return $resolved;
+        } catch (\Throwable $e) {
+            Log::warning('Reverse geocode for zone/intercity matching failed', ['error' => $e->getMessage()]);
+
+            return ['city' => null, 'region' => null];
+        }
+    }
+
     protected function getBaseFare(int $orderType, ?PricingZone $zone = null): float
     {
         $key = $orderType === 0 ? 'fare.base_taxi' : 'fare.base_delivery';
@@ -736,6 +861,19 @@ trait MatchesDriverSchedules
     protected function getRouteDeviationThresholdKm(): float
     {
         return $this->getSettingFloat('fare.route_deviation_km', 0.75);
+    }
+
+    // Null (no cutoff enforced — every driver stays automatically
+    // eligible, today's behavior) until explicitly set. Set once, at the
+    // moment this opt-in requirement is introduced, to "now" — every
+    // driver account created before that instant is grandfathered in;
+    // every driver created from that instant onward must explicitly
+    // enable each long-distance route themselves.
+    protected function getLongDistanceOptInCutoff(): ?string
+    {
+        $value = Setting::where('key', 'driver.long_distance_opt_in_cutoff')->value('value');
+
+        return $value !== null && $value !== '' ? $value : null;
     }
 
     // How far a driver's own price overrides are allowed to stray from the

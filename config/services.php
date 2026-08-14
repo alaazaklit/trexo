@@ -46,4 +46,15 @@ return [
         'otp_template_lang' => env('WHATSAPP_OTP_TEMPLATE_LANG', 'en_US'),
     ],
 
+    // Google Play review / demo account — a single dedicated phone number
+    // that logs in with a fixed OTP instead of a real WhatsApp code, so
+    // reviewers aren't blocked on a code that expires or changes. Leave
+    // either value empty to disable the feature entirely. See
+    // docs/demo-account.md for the full flow and how to rotate/disable it.
+    'demo_account' => [
+        'phone' => env('DEMO_ACCOUNT_PHONE'),
+        'otp' => env('DEMO_ACCOUNT_OTP'),
+        'name' => env('DEMO_ACCOUNT_NAME', 'Google Play Reviewer'),
+    ],
+
 ];

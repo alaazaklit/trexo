@@ -5,14 +5,20 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Driver;
 use App\Models\DriverDocument;
+use App\Models\DriverIntercityRouteOverride;
+use App\Models\IntercityRoute;
+use App\Models\PricingZone;
 use App\Models\VehicleCategory;
 use App\Services\Driver\DriverManagementService;
+use App\Traits\MatchesDriverSchedules;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
 
 class DriverManagementController extends Controller
 {
+    use MatchesDriverSchedules;
+
     public function __construct(private readonly DriverManagementService $service)
     {
     }
@@ -32,7 +38,19 @@ class DriverManagementController extends Controller
 
     public function show(Driver $driver): View
     {
-        $driver->load(['user', 'documents', 'vehicleCategory']);
+        $driver->load(['user', 'documents', 'vehicleCategory', 'schoolBusRoutes.school']);
+
+        $driverIntercityOverrides = DriverIntercityRouteOverride::where('user_id', $driver->user_id)
+            ->get()
+            ->keyBy('intercity_route_id');
+
+        // Same bounds/defaults the driver's own app "Asaar" (Prices) screen
+        // computes for itself (DriverProfileController::getPricingOverrides)
+        // — shown here too so admin sees the same base-fare/per-km/detour/
+        // reservation-multiplier defaults for the driver's zone (or the
+        // global fallback if they have none) next to each override field.
+        $zone = $driver->pricing_zone_id ? PricingZone::find($driver->pricing_zone_id) : null;
+        $overrideBounds = $this->getOverrideBounds($zone);
 
         return view('admin.drivers.show', [
             'pageTitle' => 'Driver: '.($driver->user->name ?: $driver->user->phone),
@@ -42,6 +60,10 @@ class DriverManagementController extends Controller
             'schoolBusStatuses' => Driver::SCHOOL_BUS_STATUSES,
             'documentTypes' => DriverManagementService::DOCUMENT_TYPES,
             'vehicleCategories' => VehicleCategory::orderBy('name')->get(),
+            'pricingZones' => PricingZone::orderBy('name')->get(),
+            'intercityRoutes' => IntercityRoute::with(['fromZone', 'toZone'])->get(),
+            'driverIntercityOverrides' => $driverIntercityOverrides,
+            'overrideBounds' => $overrideBounds,
         ]);
     }
 
@@ -134,11 +156,14 @@ class DriverManagementController extends Controller
     {
         $data = $request->validate([
             'license_number' => 'nullable|string|max:100|unique:drivers,license_number,'.$driver->id,
+            'national_id_number' => 'nullable|string|max:100',
             'vehicle_category_id' => 'nullable|exists:vehicle_categories,id',
+            'vehicle_type' => 'nullable|string|max:50',
             'vehicle_make' => 'nullable|string|max:100',
             'vehicle_model' => 'nullable|string|max:100',
             'vehicle_color' => 'nullable|string|max:50',
             'vehicle_plate' => 'nullable|string|max:20',
+            'vehicle_year' => 'nullable|integer|min:1970|max:'.(date('Y') + 1),
             'transmission' => 'nullable|string|max:20',
         ]);
 

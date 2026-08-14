@@ -4,6 +4,9 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Spatie\Permission\Traits\HasRoles;
 use Tymon\JWTAuth\Contracts\JWTSubject;
 
@@ -30,6 +33,7 @@ class User extends \TCG\Voyager\Models\User implements JWTSubject
         'speed_kmh',
         'last_seen_at',
         'is_simulated',
+        'is_demo_account',
         'language',
     ];
 
@@ -44,6 +48,7 @@ class User extends \TCG\Voyager\Models\User implements JWTSubject
         'status_changed_at' => 'datetime',
         'is_available' => 'boolean',
         'is_simulated' => 'boolean',
+        'is_demo_account' => 'boolean',
         'latitude' => 'decimal:7',
         'longitude' => 'decimal:7',
         'heading' => 'decimal:2',
@@ -74,5 +79,44 @@ class User extends \TCG\Voyager\Models\User implements JWTSubject
     public function isBlocked(): bool
     {
         return $this->account_status !== 'active';
+    }
+
+    /**
+     * Mirrors UsersController::normalizePhoneNumber() — strips everything
+     * but digits and drops a leading Lebanese country code, so a phone
+     * value from .env config matches what the app actually sends.
+     */
+    public static function normalizePhone(?string $phone): string
+    {
+        $digitsOnly = preg_replace('/\D+/', '', (string) $phone);
+
+        if (str_starts_with($digitsOnly, '961')) {
+            $digitsOnly = substr($digitsOnly, 3);
+        }
+
+        return $digitsOnly;
+    }
+
+    /**
+     * Scrubs PII in place (name/email/phone/password/avatar/fcm token) and
+     * saves. Shared by the in-app delete-account API and the public
+     * delete-account web page so both stay identical. Caller is still
+     * responsible for revoking tokens and soft-deleting the row.
+     */
+    public function anonymize(): void
+    {
+        if ($this->avatar) {
+            Storage::disk('public')->delete($this->avatar);
+        }
+
+        $this->name = 'Deleted user';
+        $this->email = "deleted_{$this->id}_" . time() . '@deleted.local';
+        $this->phone = "deleted_{$this->id}";
+        $this->password = Hash::make(Str::random(40));
+        $this->fcm_token = null;
+        $this->api_token = null;
+        $this->avatar = null;
+        $this->is_available = false;
+        $this->save();
     }
 }

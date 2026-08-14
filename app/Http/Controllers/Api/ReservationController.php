@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Log;
 use Tymon\JWTAuth\Facades\JWTAuth;
 use App\Models\User;
 use App\Traits\MatchesDriverSchedules;
+use App\Services\Dispatch\DispatchLogService;
 use App\Services\Firebase\FcmMessagingService;
 use App\Services\Wallet\TransactionService;
 
@@ -37,8 +38,11 @@ class ReservationController extends Controller
             ->get();
 
         foreach ($staleReservations as $reservation) {
+            $staleDriverId = $reservation->driver_id;
             $reservation->driver_id = null;
             $reservation->save();
+
+            (new DispatchLogService())->logOutcome('reservation', null, $reservation->id, $staleDriverId, 'expired');
 
             $this->notifyReservationParty(
                 (int) $reservation->seller_id,
@@ -405,6 +409,8 @@ class ReservationController extends Controller
         $reservation->pickup_notified_at = null;
         $reservation->save();
 
+        (new DispatchLogService())->logSent('reservation', (int) $user->id, (int) $driverId, null, $reservation->id, $reservation->order_kind, $reservation->price);
+
         $this->notifyReservationParty(
             (int) $driverId,
             $reservation->id,
@@ -545,9 +551,12 @@ class ReservationController extends Controller
         // Driver rejecting frees the reservation back up for the seller to
         // assign someone else, mirroring the order flow's driver_rejected.
         if ($status === 'rejected' && (int) $reservation->driver_id === (int) $user->id) {
+            $rejectingDriverId = $reservation->driver_id;
             $reservation->status = 'pending';
             $reservation->driver_id = null;
             $reservation->save();
+
+            (new DispatchLogService())->logOutcome('reservation', null, $reservation->id, $rejectingDriverId, 'rejected');
 
             $this->notifyReservationParty(
                 (int) $reservation->seller_id,
@@ -565,6 +574,7 @@ class ReservationController extends Controller
             ], 201);
         }
 
+        $previousStatus = $reservation->status;
         $reservation->status = $status;
         if ($status === 'accepted' && !$reservation->driver_accepted_at) {
             $reservation->driver_accepted_at = now();
@@ -573,6 +583,14 @@ class ReservationController extends Controller
             $reservation->cancel_reason = trim((string) $request->input('reason', '')) ?: null;
         }
         $reservation->save();
+
+        if ($status === 'accepted' && $previousStatus === 'pending') {
+            (new DispatchLogService())->logOutcome('reservation', null, $reservation->id, $reservation->driver_id, 'accepted');
+        }
+
+        if ($status === 'cancelled' && $previousStatus === 'pending') {
+            (new DispatchLogService())->logOutcome('reservation', null, $reservation->id, $reservation->driver_id, 'canceled');
+        }
 
         if ($status === 'completed') {
             $this->recordReservationTransaction($reservation);

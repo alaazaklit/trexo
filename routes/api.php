@@ -37,6 +37,7 @@ Route::middleware(['auth:api'])->group(function () {
     Route::post('/driver/gallery/reorder', [App\Http\Controllers\Api\DriverProfileController::class, 'reorderGallery'])->name('driverGalleryReorder');
     Route::get('/driver/pricing', [App\Http\Controllers\Api\DriverProfileController::class, 'getPricingOverrides'])->name('getDriverPricing');
     Route::post('/driver/pricing', [App\Http\Controllers\Api\DriverProfileController::class, 'updatePricingOverrides'])->name('updateDriverPricing');
+    Route::post('/driver/pricing/test', [App\Http\Controllers\Api\DriverProfileController::class, 'testPrice'])->name('driverTestPrice');
     Route::get('/driver/intercity-routes', [App\Http\Controllers\Api\DriverProfileController::class, 'getIntercityRouteOverrides'])->name('getDriverIntercityRoutes');
     Route::post('/driver/intercity-routes', [App\Http\Controllers\Api\DriverProfileController::class, 'updateIntercityRouteOverride'])->name('updateDriverIntercityRoute');
 

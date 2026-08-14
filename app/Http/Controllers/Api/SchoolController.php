@@ -109,6 +109,10 @@ class SchoolController extends Controller
                 'active_students_count' => $route !== null
                     ? SchoolBusSubscription::where('route_id', $route->id)->where('status', 'active')->count()
                     : 0,
+                // Lets the app's drivers list offer a direct "select" shortcut
+                // straight into the subscribe form for this exact route.
+                'route_id' => $route?->id,
+                'child_discount_percent' => (float) ($driver->school_bus_child_discount_percent ?? 0),
             ];
         });
 

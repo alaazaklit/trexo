@@ -9,16 +9,20 @@ use App\Http\Controllers\Admin\CustomerController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\DriverApplicationController as AdminDriverApplicationController;
 use App\Http\Controllers\Admin\DriverManagementController;
+use App\Http\Controllers\Admin\DriverPricingController;
 use App\Http\Controllers\Admin\DriverSimulatorController;
 use App\Http\Controllers\Admin\DriverSubscriptionController;
 use App\Http\Controllers\Admin\FinancialReportController;
 use App\Http\Controllers\Admin\OrderOpsController;
+use App\Http\Controllers\Admin\RequestReportController;
 use App\Http\Controllers\Admin\SchoolBusPremiumSubscriptionController;
+use App\Http\Controllers\Admin\SchoolBusRouteController;
 use App\Http\Controllers\Admin\SchoolBusSubscriptionController;
 use App\Http\Controllers\Admin\SchoolController;
 use App\Http\Controllers\Admin\SubscriptionPlanController;
 use App\Http\Controllers\Admin\VehicleCategoryController;
 use App\Http\Controllers\Admin\WalletController;
+use App\Http\Controllers\AccountDeletionController;
 use App\Http\Controllers\ContactController;
 use App\Http\Controllers\DriverApplicationController;
 use App\Http\Controllers\LandingController;
@@ -54,6 +58,12 @@ Route::group([
     Route::post('/contact', [ContactController::class, 'store'])->name('contact.store');
     Route::get('/privacy-policy', [PageController::class, 'privacy'])->name('pages.privacy');
     Route::get('/terms', [PageController::class, 'terms'])->name('pages.terms');
+
+    // Google Play Data Safety "Account Deletion" requirement: a public
+    // URL that lets a user request account deletion without the app.
+    Route::get('/delete-account', [AccountDeletionController::class, 'show'])->name('pages.delete-account');
+    Route::post('/delete-account/otp', [AccountDeletionController::class, 'requestOtp'])->name('pages.delete-account.otp');
+    Route::post('/delete-account/confirm', [AccountDeletionController::class, 'confirm'])->name('pages.delete-account.confirm');
 });
 
 Route::group(['prefix' => 'admin'], function () {
@@ -114,6 +124,12 @@ Route::group(['prefix' => 'admin'], function () {
         Route::delete('/driver-management/{driver}', [DriverManagementController::class, 'destroy'])->name('admin.drivers.destroy');
     });
 
+    Route::middleware(['web', 'auth', 'permission:pricing.manage'])->group(function () {
+        Route::post('/driver-management/{driver}/pricing', [DriverPricingController::class, 'update'])->name('admin.drivers.pricing.update');
+        Route::post('/driver-management/{driver}/pricing/intercity', [DriverPricingController::class, 'storeIntercityOverride'])->name('admin.drivers.pricing.intercity.store');
+        Route::delete('/driver-pricing-intercity-overrides/{override}', [DriverPricingController::class, 'destroyIntercityOverride'])->name('admin.drivers.pricing.intercity.destroy');
+    });
+
     Route::middleware(['web', 'auth', 'permission:vehicles.manage'])->group(function () {
         Route::get('/vehicle-categories', [VehicleCategoryController::class, 'index'])->name('admin.vehicle-categories.index');
         Route::post('/vehicle-categories', [VehicleCategoryController::class, 'store'])->name('admin.vehicle-categories.store');
@@ -167,6 +183,7 @@ Route::group(['prefix' => 'admin'], function () {
 
     Route::middleware(['web', 'auth', 'permission:school-bus.view'])->group(function () {
         Route::get('/schools', [SchoolController::class, 'index'])->name('admin.schools.index');
+        Route::get('/school-bus-routes', [SchoolBusRouteController::class, 'index'])->name('admin.school-bus-routes.index');
         Route::get('/school-bus-subscriptions', [SchoolBusSubscriptionController::class, 'index'])->name('admin.school-bus-subscriptions.index');
         Route::get('/school-bus-subscriptions/{schoolBusSubscription}', [SchoolBusSubscriptionController::class, 'show'])->name('admin.school-bus-subscriptions.show');
         Route::get('/school-bus-premium-subscriptions', [SchoolBusPremiumSubscriptionController::class, 'index'])->name('admin.school-bus-premium-subscriptions.index');
@@ -177,8 +194,15 @@ Route::group(['prefix' => 'admin'], function () {
         Route::post('/schools', [SchoolController::class, 'store'])->name('admin.schools.store');
         Route::put('/schools/{school}', [SchoolController::class, 'update'])->name('admin.schools.update');
         Route::delete('/schools/{school}', [SchoolController::class, 'destroy'])->name('admin.schools.destroy');
+        Route::post('/school-bus-routes', [SchoolBusRouteController::class, 'store'])->name('admin.school-bus-routes.store');
+        Route::put('/school-bus-routes/{schoolBusRoute}', [SchoolBusRouteController::class, 'update'])->name('admin.school-bus-routes.update');
+        Route::delete('/school-bus-routes/{schoolBusRoute}', [SchoolBusRouteController::class, 'destroy'])->name('admin.school-bus-routes.destroy');
         Route::post('/school-bus-premium-subscriptions/{schoolBusPremiumSubscription}/approve', [SchoolBusPremiumSubscriptionController::class, 'approve'])->name('admin.school-bus-premium-subscriptions.approve');
         Route::post('/school-bus-premium-subscriptions/{schoolBusPremiumSubscription}/reject', [SchoolBusPremiumSubscriptionController::class, 'reject'])->name('admin.school-bus-premium-subscriptions.reject');
+    });
+
+    Route::middleware(['web', 'auth', 'permission:request-reports.view'])->group(function () {
+        Route::get('/request-reports', [RequestReportController::class, 'index'])->name('admin.request-reports.index');
     });
 
     Route::middleware(['web', 'auth', 'permission:wallet.view'])->group(function () {
