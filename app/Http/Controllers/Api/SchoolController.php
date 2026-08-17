@@ -43,7 +43,14 @@ class SchoolController extends Controller
         $areas = SchoolBusRoute::query()
             ->where('school_id', $school->id)
             ->where('is_active', true)
-            ->whereHas('driver', fn ($q) => $q->where('school_bus_status', 'approved'))
+            // Visible as soon as a driver has added the route — no separate
+            // request+approval step. Only an explicit admin suspend/reject
+            // hides it; a null/pending status (including a driver who's
+            // never touched school_bus_status at all) still shows through.
+            ->whereHas('driver', fn ($q) => $q->where(
+                fn ($qq) => $qq->whereNull('school_bus_status')
+                    ->orWhereNotIn('school_bus_status', ['suspended', 'rejected'])
+            ))
             ->selectRaw('pickup_area, MIN(monthly_price) as min_price, COUNT(DISTINCT driver_id) as driver_count')
             ->groupBy('pickup_area')
             ->orderBy('pickup_area')
@@ -82,7 +89,12 @@ class SchoolController extends Controller
                     $q->where('pickup_area', $pickupArea);
                 }
             }])
-            ->where('school_bus_status', 'approved')
+            // Same "enabled unless explicitly suspended/rejected" rule as
+            // pickupAreasForSchool() above.
+            ->where(
+                fn ($q) => $q->whereNull('school_bus_status')
+                    ->orWhereNotIn('school_bus_status', ['suspended', 'rejected'])
+            )
             ->whereHas('schoolBusRoutes', function ($q) use ($school, $pickupArea) {
                 $q->where('school_id', $school->id)->where('is_active', true);
                 if (!empty($pickupArea)) {
@@ -109,6 +121,10 @@ class SchoolController extends Controller
                 'active_students_count' => $route !== null
                     ? SchoolBusSubscription::where('route_id', $route->id)->where('status', 'active')->count()
                     : 0,
+                // Lets the app's drivers list offer a direct "select" shortcut
+                // straight into the subscribe form for this exact route.
+                'route_id' => $route?->id,
+                'child_discount_percent' => (float) ($driver->school_bus_child_discount_percent ?? 0),
             ];
         });
 

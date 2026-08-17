@@ -56,7 +56,16 @@ return [
             // public_path() is deterministic (unlike $_SERVER['DOCUMENT_ROOT'], which can be
             // empty depending on how the web server invokes PHP, e.g. behind a proxy or in CLI).
             'root' => public_path('storage'),
-            'url' => env('APP_URL') . '/storage', // URL to access the file
+            // The storage symlink is a static file served directly by the
+            // webserver at .../public/storage/..., separate from how
+            // APP_URL is used for routing/admin-link generation elsewhere
+            // (those correctly have no /public segment — this host's
+            // .htaccess forwards dynamic requests into public/index.php
+            // regardless of path, but static files are only found on disk
+            // under the literal public/ folder). Hardcoded here rather than
+            // folded into APP_URL itself, since changing APP_URL to include
+            // /public broke every admin-panel-generated link at once.
+            'url' => env('APP_URL') . '/public/storage',
             'visibility' => 'public',
             ],
 

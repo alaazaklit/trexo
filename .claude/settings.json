@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(scp -P 18765 -i ~/.ssh/id_ed25519_siteground_trexo -r public/build u2114-ygzrmdghmc1g@ssh.ramin7.sg-host.com:/home/u2114-ygzrmdghmc1g/www/ramin7.sg-host.com/public_html/trexo/public/build.new)",
+      "Bash(curl -s -o /dev/null -w \"landing: %{http_code}\\\\n\" https://ramin7.sg-host.com/)",
+      "Bash(curl -s -o /dev/null -w \"admin: %{http_code}\\\\n\" https://ramin7.sg-host.com/admin/login)",
+      "Bash(curl -s -o /dev/null -w \"api/v1 \\(expect 401/404, not 500\\): %{http_code}\\\\n\" https://ramin7.sg-host.com/api/v1/settings)",
+      "Bash(curl -s -i https://ramin7.sg-host.com/admin/login)",
+      "Bash(curl -s -i https://ramin7.sg-host.com/admin)",
+      "Bash(curl -s -i \"https://ramin7.sg-host.com/en/\")",
+      "Bash(curl -s -o /dev/null -w \"landing: %{http_code}\\\\n\" https://trexogo.com/)",
+      "Bash(curl -s -o /dev/null -w \"admin/login: %{http_code}\\\\n\" https://trexogo.com/admin/login)",
+      "Bash(curl -s -o /dev/null -w \"api/v1/settings: %{http_code}\\\\n\" https://trexogo.com/api/v1/settings)",
+      "Bash(curl -s -i -L https://trexogo.com/)",
+      "Bash(curl -s -o /dev/null -w \"exchange-rate: %{http_code}\\\\n\" https://trexogo.com/api/exchange-rate)",
+      "Bash(curl -s -o /dev/null -w \"exchange-rate v1: %{http_code}\\\\n\" https://trexogo.com/api/v1/exchange-rate)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\ACER\\.claude\\projects\\c--wamp64-www-trexo-trexo"
+    ]
+  }
+}

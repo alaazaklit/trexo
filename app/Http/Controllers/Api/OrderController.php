@@ -14,6 +14,7 @@ use App\Reservation;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use TCG\Voyager\Models\Setting;
+use App\Services\Dispatch\DispatchLogService;
 use App\Services\Firebase\FcmMessagingService;
 use App\Services\Tracking\OrderTrackingRules;
 use App\Services\Wallet\TransactionService;
@@ -73,9 +74,12 @@ private function expireStaleOrderRequests(FcmMessagingService $Notification): vo
         ->get();
 
     foreach ($staleOrders as $order) {
+        $staleDriverId = $order->driver_id;
         $order->status = 'request_expired';
         $order->driver_id = null;
         $order->save();
+
+        (new DispatchLogService())->logOutcome('order', $order->id, null, $staleDriverId, 'expired');
 
         $this->notifyOrderOwner(
             (int) $order->user_id,
@@ -335,6 +339,8 @@ function ChooseDriver(Request $request, FcmMessagingService $Notification)
     // Step 6: Save the order with the new driver_id
     $order->save();
 
+    (new DispatchLogService())->logSent('order', (int) $user->id, (int) $driver_id, $order->id, null, $order->order_kind, $order->price);
+
     $driverUser = User::find($driver_id);
     if ($driverUser) {
         $title = $this->orderKindText($order, 'طلب رحلة جديد', 'طلب جديد');
@@ -428,9 +434,12 @@ function updateOrderStatus(Request $request, FcmMessagingService $Notification)
       }
 
       if ($result && $status === 'driver_rejected' && (int) $order->driver_id === (int) $user->id) {
+        $rejectingDriverId = $order->driver_id;
         $order->status = 'driver_rejected';
         $order->driver_id = null;
         $order->save();
+
+        (new DispatchLogService())->logOutcome('order', $order->id, null, $rejectingDriverId, 'rejected');
 
         $this->notifyOrderOwner(
             (int) $order->user_id,
@@ -464,9 +473,12 @@ function updateOrderStatus(Request $request, FcmMessagingService $Notification)
       // would clobber an in-progress trip back to "expired" and wrongly
       // tell the seller the driver never responded.
       if ($result && $status === 'request_expired' && $order->status === 'waiting_driver_response' && (int) $order->driver_id === (int) $user->id) {
+        $expiringDriverId = $order->driver_id;
         $order->status = 'request_expired';
         $order->driver_id = null;
         $order->save();
+
+        (new DispatchLogService())->logOutcome('order', $order->id, null, $expiringDriverId, 'expired');
 
         $this->notifyOrderOwner(
             (int) $order->user_id,
@@ -574,6 +586,14 @@ function updateOrderStatus(Request $request, FcmMessagingService $Notification)
         }
 
         $order->save();
+
+        if ($status === 'on_way' && $previousStatus === 'waiting_driver_response') {
+            (new DispatchLogService())->logOutcome('order', $order->id, null, $order->driver_id, 'accepted');
+        }
+
+        if ($status === 'canceled' && $previousStatus === 'waiting_driver_response') {
+            (new DispatchLogService())->logOutcome('order', $order->id, null, $order->driver_id, 'canceled');
+        }
 
         Log::channel('tracking')->info('updateOrderStatus: transition applied', [
             'order_id' => $order->id,
@@ -1242,9 +1262,12 @@ public function getOrderTracking($orderId)
 }
 
 ///////////////////////////////Drivers for Order////////////////////
-public function getOrderDrivers($orderId = 34)
+public function getOrderDrivers(Request $request, $orderId = 34)
 {
     $user = JWTAuth::parseToken()->authenticate();
+    $genderFilter = in_array($request->query('gender'), ['male', 'female'], true)
+        ? $request->query('gender')
+        : null;
 
     $order = Order::where('orders.user_id', $user->id)
         ->where('orders.id', $orderId)
@@ -1313,7 +1336,8 @@ public function getOrderDrivers($orderId = 34)
         $order->start_city,
         $order->start_region,
         $order->destination_city,
-        $order->destination_region
+        $order->destination_region,
+        $genderFilter
     );
 
     return response()->json([

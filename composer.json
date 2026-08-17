@@ -11,6 +11,8 @@
         "intervention/image": "^2.7",
         "laravel/framework": "^10.0",
         "laravel/tinker": "^2.8",
+        "shuchkin/simplexls": "^1.0",
+        "shuchkin/simplexlsx": "^1.1",
         "spatie/laravel-permission": "^6.12",
         "tcg/voyager": "^1.7",
         "tymon/jwt-auth": "^2.1"
@@ -68,7 +70,8 @@
         "sort-packages": true,
         "allow-plugins": {
             "pestphp/pest-plugin": true
-        }
+        },
+        "process-timeout": 900
     },
     "minimum-stability": "stable",
     "prefer-stable": true

@@ -55,6 +55,13 @@
                         </select>
                     </div>
                     <div class="form-group" style="margin-right: 10px;">
+                        <select name="gender" class="form-control">
+                            <option value="">Gender: any</option>
+                            <option value="male" @selected(($filters['gender'] ?? null) === 'male')>Male</option>
+                            <option value="female" @selected(($filters['gender'] ?? null) === 'female')>Female</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="margin-right: 10px;">
                         <label><input type="checkbox" name="expiring_soon" value="1" @checked(!empty($filters['expiring_soon']))> Documents expiring within 30 days</label>
                     </div>
                     <button type="submit" class="btn btn-primary">Filter</button>
@@ -70,6 +77,7 @@
                         <tr>
                             <th>Name</th>
                             <th>Phone</th>
+                            <th>Gender</th>
                             <th>Online</th>
                             <th>Approval</th>
                             <th>School Bus</th>
@@ -82,6 +90,15 @@
                             <tr>
                                 <td>{{ $driver->user->name ?: '—' }}</td>
                                 <td>{{ $driver->user->phone }}</td>
+                                <td>
+                                    @if ($driver->user->gender === 'female')
+                                        <span class="label label-danger">Female</span>
+                                    @elseif ($driver->user->gender === 'male')
+                                        Male
+                                    @else
+                                        <span class="text-muted">—</span>
+                                    @endif
+                                </td>
                                 <td>{{ $driver->is_online ? 'Online' : 'Offline' }}</td>
                                 <td>
                                     <span class="label label-{{ $driver->approval_status === 'approved' ? 'success' : ($driver->approval_status === 'pending' ? 'default' : 'danger') }}">
@@ -104,7 +121,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="7" class="text-center">No drivers match these filters.</td>
+                                <td colspan="8" class="text-center">No drivers match these filters.</td>
                             </tr>
                         @endforelse
                     </tbody>

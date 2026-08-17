@@ -5,7 +5,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\User;
 use App\VerificationCode;
-use App\Services\WhatsAppService;
+use App\Services\UnlimitedMessagingService;
 use App\Services\Auth\RefreshTokenService;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Auth;
@@ -21,10 +21,10 @@ use Illuminate\Support\Str;
 
 class UsersController extends Controller
 {
-    private WhatsAppService $whatsAppService;
+    private UnlimitedMessagingService $whatsAppService;
     private RefreshTokenService $refreshTokenService;
 
-    public function __construct(WhatsAppService $whatsAppService, RefreshTokenService $refreshTokenService)
+    public function __construct(UnlimitedMessagingService $whatsAppService, RefreshTokenService $refreshTokenService)
     {
         $this->whatsAppService = $whatsAppService;
         $this->refreshTokenService = $refreshTokenService;
@@ -98,6 +98,55 @@ class UsersController extends Controller
         return $data;
     }
 
+    /**
+     * True only when $normalizedPhone exactly matches the configured
+     * DEMO_ACCOUNT_PHONE — the single gate every demo-account code path
+     * below is guarded by. Returns false (never matches) when the env var
+     * is unset, which is how the whole feature is disabled.
+     */
+    private function isDemoPhone(string $normalizedPhone): bool
+    {
+        $demoPhone = User::normalizePhone(config('services.demo_account.phone'));
+
+        return $demoPhone !== '' && $normalizedPhone === $demoPhone;
+    }
+
+    /**
+     * Google Play review / demo account login — entirely separate from the
+     * real WhatsApp-OTP flow below. No VerificationCode row is ever created
+     * for this phone, no real WhatsApp message is sent, and the fixed OTP
+     * is checked directly against config in verifyOtp(). See
+     * docs/demo-account.md.
+     */
+    private function requestDemoOtp(Request $request, string $phone)
+    {
+        $user = User::firstOrCreate(
+            ['phone' => $phone],
+            [
+                'type' => 'seller',
+                'name' => config('services.demo_account.name'),
+                'is_demo_account' => true,
+                'is_verified' => true,
+                'account_status' => 'active',
+            ]
+        );
+
+        if (!$user->is_demo_account) {
+            $user->is_demo_account = true;
+            $user->save();
+        }
+
+        Log::channel('demo_account')->info('Demo OTP requested', [
+            'phone' => $phone,
+            'ip' => $request->ip(),
+        ]);
+
+        return response()->json([
+            'result' => true,
+            'message' => 'تم إرسال رمز التحقق عبر واتساب',
+        ], 200);
+    }
+
     public function requestOtp(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -109,6 +158,10 @@ class UsersController extends Controller
         }
 
         $phone = $this->normalizePhoneNumber($request->input('phone'));
+
+        if ($this->isDemoPhone($phone)) {
+            return $this->requestDemoOtp($request, $phone);
+        }
 
         $user = User::firstOrCreate(
             ['phone' => $phone],
@@ -141,7 +194,14 @@ class UsersController extends Controller
             'used' => 0,
         ]);
 
-        $this->whatsAppService->sendOtp('961' . $phone, $verificationCode->code);
+        $sent = $this->whatsAppService->sendWhatsAppMessage($phone, "Your Trexo verification code is: {$verificationCode->code}");
+
+        if (!$sent && !config('app.debug')) {
+            return response()->json([
+                'result' => false,
+                'message' => 'تعذر إرسال رمز التحقق عبر واتساب، يرجى المحاولة لاحقاً',
+            ], 502);
+        }
 
         $response = [
             'result' => true,
@@ -169,6 +229,7 @@ class UsersController extends Controller
         'email' => 'nullable|email|unique:users,email,' . $user->id, // Allow email update while excluding the current user's email
         'phone' => 'nullable|string|max:255',
         'password' => 'nullable|string',
+        'gender' => 'nullable|in:male,female',
         'fcm_token' => 'nullable|string',
         'latitude' => 'nullable|numeric',
         'longitude' => 'nullable|numeric',
@@ -198,6 +259,10 @@ class UsersController extends Controller
 
         if ($request->filled('phone')) {
             $user->phone = $request->input('phone');
+        }
+
+        if ($request->filled('gender')) {
+            $user->gender = $request->input('gender');
         }
 
         $user->name = $request->input('name');
@@ -480,6 +545,73 @@ public function logout(Request $request)
 }
 
 
+/**
+ * Verifies the fixed demo OTP against config and, on success, issues a
+ * real token pair for the isolated demo user — otherwise rejects with the
+ * same generic message a real wrong/expired code gets, so a wrong guess
+ * for this phone number reveals nothing about it being special. No
+ * VerificationCode row is ever consulted for this phone.
+ */
+private function verifyDemoOtp(Request $request, string $phone)
+{
+    $demoOtp = (string) config('services.demo_account.otp');
+
+    if ($demoOtp === '' || $request->input('otp') !== $demoOtp) {
+        Log::channel('demo_account')->warning('Demo OTP verification failed', [
+            'phone' => $phone,
+            'ip' => $request->ip(),
+        ]);
+
+        return response()->json([
+            'result' => false,
+            'error' => 'رمز التحقق غير صحيح أو منتهي الصلاحية',
+        ], 400);
+    }
+
+    $user = User::firstOrCreate(
+        ['phone' => $phone],
+        [
+            'type' => 'seller',
+            'name' => config('services.demo_account.name'),
+            'is_demo_account' => true,
+            'is_verified' => true,
+            'account_status' => 'active',
+        ]
+    );
+
+    if (!$user->is_demo_account) {
+        $user->is_demo_account = true;
+        $user->save();
+    }
+
+    if ($user->isBlocked()) {
+        return response()->json([
+            'result' => false,
+            'error' => 'هذا الحساب موقوف، يرجى التواصل مع الدعم',
+            'account_status' => $user->account_status,
+        ], 403);
+    }
+
+    $user->is_verified = 1;
+    $user->save();
+
+    $tokens = $this->issueTokenPair($user);
+
+    Log::channel('demo_account')->info('Demo account login succeeded', [
+        'user_id' => $user->id,
+        'phone' => $phone,
+        'ip' => $request->ip(),
+    ]);
+
+    return response()->json(array_merge([
+        'result' => true,
+        'message' => 'تم التحقق بنجاح',
+        'token' => $tokens['access_token'],
+        'needs_profile' => empty($user->name),
+        'user' => $this->formatUserResponse($user, $request),
+    ], $tokens), 200);
+}
+
 public function verifyOtp(Request $request)
 {
     $validator = Validator::make($request->all(), [
@@ -493,6 +625,12 @@ public function verifyOtp(Request $request)
             'error' => 'Invalid input data',
             'details' => $validator->errors(),
         ], 400);
+    }
+
+    $normalizedPhone = $this->normalizePhoneNumber($request->input('phone'));
+
+    if ($this->isDemoPhone($normalizedPhone)) {
+        return $this->verifyDemoOtp($request, $normalizedPhone);
     }
 
     $phoneCandidates = $this->phoneCandidates($request->input('phone'));
@@ -689,22 +827,7 @@ public function deleteAccount(Request $request)
         return response()->json(['result' => false, 'message' => 'Unauthorized'], 401);
     }
 
-    $userId = $user->id;
-
-    if ($user->avatar) {
-        Storage::disk('public')->delete($user->avatar);
-    }
-
-    $user->name = 'Deleted user';
-    $user->email = "deleted_{$userId}_" . time() . '@deleted.local';
-    $user->phone = "deleted_{$userId}";
-    $user->password = Hash::make(Str::random(40));
-    $user->fcm_token = null;
-    $user->api_token = null;
-    $user->avatar = null;
-    $user->is_available = false;
-    $user->save();
-
+    $user->anonymize();
     $this->refreshTokenService->revokeAllForUser($user);
     $user->delete();
 

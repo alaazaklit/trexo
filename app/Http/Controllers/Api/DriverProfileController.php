@@ -10,6 +10,7 @@ use App\Models\DriverServiceLine;
 use App\Models\IntercityRoute;
 use App\Models\PricingZone;
 use App\Models\User;
+use App\Services\Pricing\FareCalculator;
 use App\Traits\MatchesDriverSchedules;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -50,6 +51,7 @@ class DriverProfileController extends Controller
                     'id' => $user->id,
                     'name' => $user->name,
                     'avatar' => $user->avatar,
+                    'gender' => $user->gender,
                 ],
                 'driver' => [
                     'rating' => $driver->rating ?? 0,
@@ -94,6 +96,11 @@ class DriverProfileController extends Controller
                 'price_per_km_override' => $driver?->price_per_km_override,
                 'detour_surcharge_override' => $driver?->detour_surcharge_override,
                 'reservation_multiplier_override' => $driver?->reservation_multiplier_override,
+                // A driver with no `drivers` row, or one created before this
+                // column existed, must read as fully eligible — never
+                // silently true=>false just because the row is missing.
+                'offers_taxi' => $driver?->offers_taxi ?? true,
+                'offers_delivery' => $driver?->offers_delivery ?? true,
                 'pricing_zone_id' => $driver?->pricing_zone_id,
                 'zones' => PricingZone::where('is_active', true)
                     ->orderBy('name')
@@ -118,6 +125,8 @@ class DriverProfileController extends Controller
             'detour_surcharge_override' => 'nullable|numeric',
             'reservation_multiplier_override' => 'nullable|numeric',
             'pricing_zone_id' => 'nullable|integer|exists:pricing_zones,id',
+            'offers_taxi' => 'nullable|boolean',
+            'offers_delivery' => 'nullable|boolean',
         ]);
 
         if ($validator->fails()) {
@@ -167,6 +176,29 @@ class DriverProfileController extends Controller
             $updates[$field] = $value;
         }
 
+        if ($request->has('offers_taxi')) {
+            $updates['offers_taxi'] = $request->boolean('offers_taxi');
+        }
+        if ($request->has('offers_delivery')) {
+            $updates['offers_delivery'] = $request->boolean('offers_delivery');
+        }
+
+        // A driver accepting neither service is almost certainly a mistake
+        // (they'd silently stop receiving any order at all) rather than
+        // intent, so it's rejected outright instead of saved.
+        $effectiveOffersTaxi = array_key_exists('offers_taxi', $updates)
+            ? $updates['offers_taxi']
+            : ($existingDriver?->offers_taxi ?? true);
+        $effectiveOffersDelivery = array_key_exists('offers_delivery', $updates)
+            ? $updates['offers_delivery']
+            : ($existingDriver?->offers_delivery ?? true);
+        if (!$effectiveOffersTaxi && !$effectiveOffersDelivery) {
+            return response()->json([
+                'result' => false,
+                'message' => 'يجب قبول خدمة واحدة على الأقل (تاكسي أو توصيل).',
+            ], 422);
+        }
+
         if (empty($updates)) {
             return response()->json([
                 'result' => false,
@@ -185,7 +217,10 @@ class DriverProfileController extends Controller
             // row here purely to store a price override must not silently
             // default them to 'pending' and make them stop being matched
             // until an admin approves them.
-            $driver = Driver::create(array_merge($updates, [
+            $driver = Driver::create(array_merge([
+                'offers_taxi' => true,
+                'offers_delivery' => true,
+            ], $updates, [
                 'user_id' => $user->id,
                 'approval_status' => 'approved',
             ]));
@@ -199,9 +234,132 @@ class DriverProfileController extends Controller
                 'price_per_km_override' => $driver->price_per_km_override,
                 'detour_surcharge_override' => $driver->detour_surcharge_override,
                 'reservation_multiplier_override' => $driver->reservation_multiplier_override,
+                'offers_taxi' => $driver->offers_taxi,
+                'offers_delivery' => $driver->offers_delivery,
                 'pricing_zone_id' => $driver->pricing_zone_id,
             ],
         ], 201);
+    }
+
+    // Driver-facing price simulator: given a pickup/destination pair, prices
+    // it exactly like a real trip would — same FareCalculator::calculate()
+    // call findMatchingDrivers() uses, the same pickup-location zone lookup
+    // (not the driver's own chosen working zone — that's a different,
+    // eligibility-only concept), the same intercity-fixed-fare short
+    // circuit, the same distance/duration resolution — but performs no
+    // writes whatsoever: no order/reservation row, no notification, no
+    // status change. Purely a read+compute endpoint.
+    //
+    // Real orders/reservations get their pickup/destination city+region from
+    // the client's own geocoding, stored on the addresses table
+    // (OrderController::getOrderDrivers reads `address_from.city` etc.).
+    // This endpoint only receives raw coordinates, so it resolves the same
+    // city/region text itself via resolveCityRegion() before doing the
+    // identical zone/intercity lookups findMatchingDrivers() does.
+    public function testPrice(Request $request)
+    {
+        $user = JWTAuth::parseToken()->authenticate();
+
+        $validator = Validator::make($request->all(), [
+            'pickup_lat' => 'required|numeric|between:-90,90',
+            'pickup_lng' => 'required|numeric|between:-180,180',
+            'destination_lat' => 'required|numeric|between:-90,90',
+            'destination_lng' => 'required|numeric|between:-180,180',
+            'order_type' => 'nullable|integer|in:0,1',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'result' => false,
+                'message' => $validator->errors()->first(),
+            ], 422);
+        }
+
+        $orderType = (int) $request->input('order_type', 0);
+        $pickup = [
+            'lat' => (float) $request->input('pickup_lat'),
+            'lng' => (float) $request->input('pickup_lng'),
+        ];
+        $destination = [
+            'lat' => (float) $request->input('destination_lat'),
+            'lng' => (float) $request->input('destination_lng'),
+        ];
+
+        $straightLineKm = $this->haversineDistance($pickup['lat'], $pickup['lng'], $destination['lat'], $destination['lng']);
+        $distanceKm = $this->resolveTripDistanceKm($pickup, $destination, $straightLineKm);
+        $durationMinutes = $this->drivingDurationMinutes($pickup['lat'], $pickup['lng'], $destination['lat'], $destination['lng']);
+
+        $driver = Driver::where('user_id', $user->id)->first();
+
+        $pickupLocation = $this->resolveCityRegion($pickup['lat'], $pickup['lng']);
+        $destinationLocation = $this->resolveCityRegion($destination['lat'], $destination['lng']);
+        $zone = $this->findPricingZone($pickupLocation['city'], $pickupLocation['region']);
+        $destinationZone = $this->findPricingZone($destinationLocation['city'], $destinationLocation['region']);
+        $intercityRoute = $this->findIntercityRoute($zone, $destinationZone);
+        // Same cross-zone/intercity guardrail findMatchingDrivers() applies —
+        // see FareCalculator::effectivePerKmRate.
+        $crossesZones = $zone !== null && $destinationZone !== null && $zone->id !== $destinationZone->id;
+
+        $baseFare = $driver?->base_fare_override !== null
+            ? (float) $driver->base_fare_override
+            : $this->getBaseFare($orderType, $zone);
+        $normalPricePerKm = $driver?->price_per_km_override !== null
+            ? (float) $driver->price_per_km_override
+            : FareCalculator::effectivePerKmRate(
+                $this->getNormalPricePerKm($orderType, $zone),
+                $this->getNormalPricePerKm($orderType, $destinationZone),
+                $this->getNormalPricePerKm($orderType, null),
+                $crossesZones
+            );
+        $sharedRidePricePerKm = $normalPricePerKm * $this->getSettingFloat('fare.shared_multiplier', 0.70);
+        $detourSurchargePerKm = $driver?->detour_surcharge_override !== null
+            ? (float) $driver->detour_surcharge_override
+            : $this->getDetourSurchargePerKm();
+
+        $intercityFixedFare = null;
+        if ($intercityRoute !== null) {
+            $routeOverride = $driver
+                ? DriverIntercityRouteOverride::where('user_id', $user->id)
+                    ->where('intercity_route_id', $intercityRoute->id)
+                    ->first()
+                : null;
+            $overrideFare = $routeOverride === null
+                ? null
+                : ($orderType === 0 ? $routeOverride->fixed_fare_taxi_override : $routeOverride->fixed_fare_delivery_override);
+            $intercityFixedFare = $overrideFare !== null
+                ? (float) $overrideFare
+                : ($orderType === 0 ? $intercityRoute->fixed_fare_taxi : $intercityRoute->fixed_fare_delivery);
+        }
+
+        $priceUsd = FareCalculator::calculate(
+            $baseFare,
+            $normalPricePerKm,
+            $sharedRidePricePerKm,
+            $detourSurchargePerKm,
+            $distanceKm,
+            false, // onRoute — a direct point-to-point test, not a shared-ride match
+            0.0,   // detourKm — no detour concept for a standalone test
+            1.0,   // reservationMultiplier — tested as a one-way order, not a reservation round trip
+            $intercityFixedFare !== null ? (float) $intercityFixedFare : null
+        );
+
+        $lbpPerUsd = $this->getSettingFloat('pricing.exchange_rate_lbp_usd', 89500.0);
+        // Money is computed and returned as an integer LBP amount from here
+        // on — LBP has no fractional unit in practice, and the final 20,000
+        // rounding happens exactly once, on this whole-trip total, never on
+        // an individual component (per-km rate, base fare, distance, etc.).
+        $calculatedPriceLbp = (int) round($priceUsd * $lbpPerUsd);
+        $finalPriceLbp = FareCalculator::roundToNearestLbp($calculatedPriceLbp);
+
+        return response()->json([
+            'result' => true,
+            'data' => [
+                'distance_km' => round($distanceKm, 2),
+                'duration_minutes' => $durationMinutes,
+                'calculated_price_lbp' => $calculatedPriceLbp,
+                'final_price_lbp' => $finalPriceLbp,
+            ],
+        ]);
     }
 
     // Driver-facing: every active intercity route (with readable zone
@@ -220,7 +378,16 @@ class DriverProfileController extends Controller
             ->get()
             ->keyBy('intercity_route_id');
 
-        $data = $routes->map(function (IntercityRoute $route) use ($overrides) {
+        // No row at all (driver never opened this screen for this route)
+        // defaults to whatever findMatchingDrivers() will actually treat
+        // them as — true (matches today's behavior) for a driver whose
+        // account predates the opt-in cutoff, false (must explicitly
+        // enable each route) for one created after it. Keeps this screen's
+        // displayed toggle state consistent with real eligibility.
+        $cutoff = $this->getLongDistanceOptInCutoff();
+        $defaultActive = !($cutoff !== null && $user->created_at !== null && $user->created_at->toDateTimeString() >= $cutoff);
+
+        $data = $routes->map(function (IntercityRoute $route) use ($overrides, $defaultActive) {
             $override = $overrides->get($route->id);
             return [
                 'id' => $route->id,
@@ -230,6 +397,8 @@ class DriverProfileController extends Controller
                 'fixed_fare_delivery' => $route->fixed_fare_delivery,
                 'fixed_fare_taxi_override' => $override?->fixed_fare_taxi_override,
                 'fixed_fare_delivery_override' => $override?->fixed_fare_delivery_override,
+                'is_active_taxi' => $override?->is_active_taxi ?? $defaultActive,
+                'is_active_delivery' => $override?->is_active_delivery ?? $defaultActive,
                 'bounds_taxi' => $this->getIntercityFareBounds($route, 0),
                 'bounds_delivery' => $this->getIntercityFareBounds($route, 1),
             ];
@@ -255,6 +424,8 @@ class DriverProfileController extends Controller
             'intercity_route_id' => 'required|integer|exists:intercity_routes,id',
             'fixed_fare_taxi_override' => 'nullable|numeric',
             'fixed_fare_delivery_override' => 'nullable|numeric',
+            'is_active_taxi' => 'nullable|boolean',
+            'is_active_delivery' => 'nullable|boolean',
         ]);
 
         if ($validator->fails()) {
@@ -297,6 +468,16 @@ class DriverProfileController extends Controller
             $updates[$field] = $value;
         }
 
+        // Whether this driver serves this specific route at all (per order
+        // kind) — independent of whether they've also set a custom price.
+        // Checked by MatchesDriverSchedules::findMatchingDrivers() before a
+        // driver is even considered eligible for a long-distance trip.
+        foreach (['is_active_taxi', 'is_active_delivery'] as $field) {
+            if ($request->has($field)) {
+                $updates[$field] = (bool) $request->input($field);
+            }
+        }
+
         if (empty($updates)) {
             return response()->json([
                 'result' => false,
@@ -315,6 +496,8 @@ class DriverProfileController extends Controller
             'data' => [
                 'fixed_fare_taxi_override' => $override->fixed_fare_taxi_override,
                 'fixed_fare_delivery_override' => $override->fixed_fare_delivery_override,
+                'is_active_taxi' => $override->is_active_taxi,
+                'is_active_delivery' => $override->is_active_delivery,
             ],
         ], 201);
     }

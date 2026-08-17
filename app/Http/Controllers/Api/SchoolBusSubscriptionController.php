@@ -239,6 +239,11 @@ class SchoolBusSubscriptionController extends Controller
             'discount_percent' => (float) $subscription->discount_percent,
             'total_price' => $subscription->total_price !== null ? (float) $subscription->total_price : null,
             'driver_name' => $subscription->relationLoaded('driver') ? $subscription->driver?->user?->name : null,
+            // Only meaningful once the driver has accepted (see mine(), the
+            // only caller that needs this) — the app only surfaces it on
+            // 'active' subscriptions, but it's harmless to include always
+            // since a pending/rejected request just won't render it.
+            'driver_phone' => $subscription->relationLoaded('driver') ? $subscription->driver?->user?->phone : null,
             'accepted_at' => $subscription->accepted_at?->toIso8601String(),
             'created_at' => $subscription->created_at?->toIso8601String(),
         ];

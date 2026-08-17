@@ -18,6 +18,16 @@
 
     @vite([$dir === 'rtl' ? 'resources/css/public-rtl.css' : 'resources/css/public-ltr.css', 'resources/js/public.js'])
     @stack('styles')
+
+    <!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-G06MF7R95T"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-G06MF7R95T');
+</script>
 </head>
 <body>
     {{--

@@ -138,12 +138,33 @@ class MapProxyController extends Controller
             return response()->json(['status' => 'REQUEST_DENIED', 'error_message' => 'Maps not configured'], 503);
         }
 
+        $language = $request->input('language', 'en');
+
+        // The client calls this on every pin drag/camera-idle while the
+        // seller is still nudging the pin around the same spot — rounding to
+        // ~11m buckets (4 decimal places, same "same place" precision the
+        // client itself uses to dedupe addresses) means most of those nudges
+        // hit the cache instead of paying for another Google round trip.
+        $latBucket = round((float) $request->input('lat'), 4);
+        $lngBucket = round((float) $request->input('lng'), 4);
+        $cacheKey = 'reverse_geocode:' . md5("{$latBucket},{$lngBucket}|{$language}");
+
+        $cached = Cache::get($cacheKey);
+        if ($cached !== null) {
+            return response($cached['body'], $cached['status'])
+                ->header('Content-Type', 'application/json');
+        }
+
         try {
             $response = Http::timeout(8)->get('https://maps.googleapis.com/maps/api/geocode/json', [
                 'latlng' => $request->input('lat') . ',' . $request->input('lng'),
-                'language' => $request->input('language', 'en'),
+                'language' => $language,
                 'key' => $apiKey,
             ]);
+
+            if ($response->successful() && in_array($response->json('status'), ['OK', 'ZERO_RESULTS'], true)) {
+                Cache::put($cacheKey, ['body' => $response->body(), 'status' => $response->status()], now()->addMinutes(30));
+            }
 
             return response($response->body(), $response->status())
                 ->header('Content-Type', 'application/json');
@@ -181,23 +202,49 @@ class MapProxyController extends Controller
             return response()->json(['status' => 'REQUEST_DENIED', 'error_message' => 'Maps not configured'], 503);
         }
 
+        $language = $request->input('language', 'en');
+        $rankby = $request->filled('rankby') ? $request->input('rankby') : null;
+        $radius = (!$rankby && $request->filled('radius')) ? $request->input('radius') : null;
+        $type = $request->filled('type') ? $request->input('type') : null;
+
+        // The client fires this (now up to three variants in parallel, see
+        // address.dart's `_fetchNearestPlaceName`) on every pin drag/camera-
+        // idle — named places/landmarks don't move, so the same ~11m bucket
+        // (4 decimal places, matching reverseGeocode's bucketing above) plus
+        // the exact search variant (radius/type/rankby) can be cached far
+        // longer than a search-text-driven endpoint like autocomplete.
+        $latBucket = round((float) $request->input('lat'), 4);
+        $lngBucket = round((float) $request->input('lng'), 4);
+        $cacheKeyParts = ["{$latBucket},{$lngBucket}", $language, $rankby ?? '', $radius ?? '', $type ?? ''];
+        $cacheKey = 'places_nearby:' . md5(implode('|', $cacheKeyParts));
+
+        $cached = Cache::get($cacheKey);
+        if ($cached !== null) {
+            return response($cached['body'], $cached['status'])
+                ->header('Content-Type', 'application/json');
+        }
+
         $query = [
             'location' => $request->input('lat') . ',' . $request->input('lng'),
-            'language' => $request->input('language', 'en'),
+            'language' => $language,
             'key' => $apiKey,
         ];
 
-        if ($request->filled('rankby')) {
-            $query['rankby'] = $request->input('rankby');
-        } elseif ($request->filled('radius')) {
-            $query['radius'] = $request->input('radius');
+        if ($rankby) {
+            $query['rankby'] = $rankby;
+        } elseif ($radius) {
+            $query['radius'] = $radius;
         }
-        if ($request->filled('type')) {
-            $query['type'] = $request->input('type');
+        if ($type) {
+            $query['type'] = $type;
         }
 
         try {
             $response = Http::timeout(8)->get('https://maps.googleapis.com/maps/api/place/nearbysearch/json', $query);
+
+            if ($response->successful() && in_array($response->json('status'), ['OK', 'ZERO_RESULTS'], true)) {
+                Cache::put($cacheKey, ['body' => $response->body(), 'status' => $response->status()], now()->addHours(6));
+            }
 
             return response($response->body(), $response->status())
                 ->header('Content-Type', 'application/json');

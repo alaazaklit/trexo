@@ -5,21 +5,25 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Driver;
 use App\Models\DriverDocument;
+use App\Models\DriverIntercityRouteOverride;
+use App\Models\IntercityRoute;
+use App\Models\PricingZone;
 use App\Models\VehicleCategory;
 use App\Services\Driver\DriverManagementService;
+use App\Traits\MatchesDriverSchedules;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
 
 class DriverManagementController extends Controller
 {
-    public function __construct(private readonly DriverManagementService $service)
-    {
-    }
+    use MatchesDriverSchedules;
+
+    public function __construct(private readonly DriverManagementService $service) {}
 
     public function index(Request $request): View
     {
-        $filters = $request->only(['search', 'approval_status', 'school_bus_status', 'expiring_soon']);
+        $filters = $request->only(['search', 'approval_status', 'school_bus_status', 'expiring_soon', 'gender']);
 
         return view('admin.drivers.index', [
             'pageTitle' => 'Drivers',
@@ -32,7 +36,28 @@ class DriverManagementController extends Controller
 
     public function show(Driver $driver): View
     {
-        $driver->load(['user', 'documents', 'vehicleCategory']);
+        $driver->load(['user', 'documents', 'vehicleCategory', 'schoolBusRoutes.school']);
+
+        $driverIntercityOverrides = DriverIntercityRouteOverride::where('user_id', $driver->user_id)
+            ->get()
+            ->keyBy('intercity_route_id');
+
+        // Same bounds/defaults the driver's own app "Asaar" (Prices) screen
+        // computes for itself (DriverProfileController::getPricingOverrides)
+        // — shown here too so admin sees the same base-fare/per-km/detour/
+        // reservation-multiplier defaults for the driver's zone (or the
+        // global fallback if they have none) next to each override field.
+        $zone = $driver->pricing_zone_id ? PricingZone::find($driver->pricing_zone_id) : null;
+        $overrideBounds = $this->getOverrideBounds($zone);
+
+        // Same "grandfathered vs. must opt in" default findMatchingDrivers()
+        // actually applies (see getLongDistanceOptInCutoff), so this admin
+        // table's "Enabled for this driver" fallback for routes with no
+        // override row matches the driver's real eligibility instead of
+        // always reading true.
+        $cutoff = $this->getLongDistanceOptInCutoff();
+        $intercityDefaultActive = ! ($cutoff !== null && $driver->user->created_at !== null
+            && $driver->user->created_at->toDateTimeString() >= $cutoff);
 
         return view('admin.drivers.show', [
             'pageTitle' => 'Driver: '.($driver->user->name ?: $driver->user->phone),
@@ -42,6 +67,11 @@ class DriverManagementController extends Controller
             'schoolBusStatuses' => Driver::SCHOOL_BUS_STATUSES,
             'documentTypes' => DriverManagementService::DOCUMENT_TYPES,
             'vehicleCategories' => VehicleCategory::orderBy('name')->get(),
+            'pricingZones' => PricingZone::orderBy('name')->get(),
+            'intercityRoutes' => IntercityRoute::with(['fromZone', 'toZone'])->get(),
+            'driverIntercityOverrides' => $driverIntercityOverrides,
+            'overrideBounds' => $overrideBounds,
+            'intercityDefaultActive' => $intercityDefaultActive,
         ]);
     }
 
@@ -119,21 +149,46 @@ class DriverManagementController extends Controller
         return back()->with('success', 'Document deleted.');
     }
 
+    public function updateGender(Request $request, Driver $driver): RedirectResponse
+    {
+        $data = $request->validate([
+            'gender' => 'nullable|in:male,female',
+        ]);
+
+        $this->service->updateGender($driver, $data['gender'] ?? null);
+
+        return back()->with('success', 'Driver gender updated.');
+    }
+
     public function updateVehicle(Request $request, Driver $driver): RedirectResponse
     {
         $data = $request->validate([
             'license_number' => 'nullable|string|max:100|unique:drivers,license_number,'.$driver->id,
+            'national_id_number' => 'nullable|string|max:100',
             'vehicle_category_id' => 'nullable|exists:vehicle_categories,id',
+            'vehicle_type' => 'nullable|string|max:50',
             'vehicle_make' => 'nullable|string|max:100',
             'vehicle_model' => 'nullable|string|max:100',
             'vehicle_color' => 'nullable|string|max:50',
             'vehicle_plate' => 'nullable|string|max:20',
+            'vehicle_year' => 'nullable|integer|min:1970|max:'.(date('Y') + 1),
             'transmission' => 'nullable|string|max:20',
         ]);
 
         $driver->update($data);
 
         return back()->with('success', 'Vehicle details updated.');
+    }
+
+    public function updateNote(Request $request, Driver $driver): RedirectResponse
+    {
+        $data = $request->validate([
+            'note' => 'nullable|string|max:5000',
+        ]);
+
+        $driver->update(['note' => $data['note'] ?? null]);
+
+        return back()->with('success', 'Driver note updated.');
     }
 
     public function destroy(Request $request, Driver $driver): RedirectResponse

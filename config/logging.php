@@ -82,6 +82,16 @@ return [
             'days' => 7,
         ],
 
+        // Google Play review/demo account activity (OTP requests, logins,
+        // failed attempts) — kept separate so it's trivial to audit demo
+        // account usage without grepping the whole app log.
+        'demo_account' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/demo-account.log'),
+            'level' => 'debug',
+            'days' => 90,
+        ],
+
         'slack' => [
             'driver' => 'slack',
             'url' => env('LOG_SLACK_WEBHOOK_URL'),

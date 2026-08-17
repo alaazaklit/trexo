@@ -39,11 +39,20 @@ return [
         'key' => env('GOOGLE_MAPS_KEY'),
     ],
 
-    'whatsapp' => [
-        'token' => env('WHATSAPP_ACCESS_TOKEN'),
-        'phone_number_id' => env('WHATSAPP_PHONE_NUMBER_ID'),
-        'otp_template' => env('WHATSAPP_OTP_TEMPLATE_NAME', 'otp_verification'),
-        'otp_template_lang' => env('WHATSAPP_OTP_TEMPLATE_LANG', 'en_US'),
+    'unlimited_messaging' => [
+        'api_url' => env('UNLIMITED_MESSAGING_API_URL', 'https://api.unlimitedmessaging.app'),
+        'api_token' => env('UNLIMITED_MESSAGING_API_TOKEN'),
+    ],
+
+    // Google Play review / demo account — a single dedicated phone number
+    // that logs in with a fixed OTP instead of a real WhatsApp code, so
+    // reviewers aren't blocked on a code that expires or changes. Leave
+    // either value empty to disable the feature entirely. See
+    // docs/demo-account.md for the full flow and how to rotate/disable it.
+    'demo_account' => [
+        'phone' => env('DEMO_ACCOUNT_PHONE'),
+        'otp' => env('DEMO_ACCOUNT_OTP'),
+        'name' => env('DEMO_ACCOUNT_NAME', 'Google Play Reviewer'),
     ],
 
 ];

@@ -12,11 +12,15 @@ class DriverIntercityRouteOverride extends Model
         'intercity_route_id',
         'fixed_fare_taxi_override',
         'fixed_fare_delivery_override',
+        'is_active_taxi',
+        'is_active_delivery',
     ];
 
     protected $casts = [
         'fixed_fare_taxi_override' => 'decimal:2',
         'fixed_fare_delivery_override' => 'decimal:2',
+        'is_active_taxi' => 'boolean',
+        'is_active_delivery' => 'boolean',
     ];
 
     public function user(): BelongsTo
