@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use App\Services\Auth\RefreshTokenService;
 use App\VerificationCode;
-use App\Services\WhatsAppService;
+use App\Services\UnlimitedMessagingService;
 use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -22,7 +22,7 @@ use Illuminate\View\View;
 class AccountDeletionController extends Controller
 {
     public function __construct(
-        private readonly WhatsAppService $whatsAppService,
+        private readonly UnlimitedMessagingService $whatsAppService,
         private readonly RefreshTokenService $refreshTokenService,
     ) {
     }
@@ -64,7 +64,14 @@ class AccountDeletionController extends Controller
             'used' => 0,
         ]);
 
-        $this->whatsAppService->sendOtp('961' . User::normalizePhone($request->input('phone')), $code->code);
+        $sent = $this->whatsAppService->sendWhatsAppMessage(
+            $request->input('phone'),
+            "Your Trexo verification code is: {$code->code}"
+        );
+
+        if (!$sent && !config('app.debug')) {
+            return back()->withInput()->withErrors(['otp' => __('pages.delete_account.errors.send_failed')]);
+        }
 
         return back()
             ->with('otp_sent_phone', $request->input('phone'))

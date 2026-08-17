@@ -122,6 +122,20 @@
                 </div>
 
                 <div class="panel panel-bordered">
+                    <div class="panel-heading"><h3>Note</h3></div>
+                    <div class="panel-body">
+                        <p class="text-muted">Internal note, visible to admins only.</p>
+                        <form method="POST" action="{{ route('admin.drivers.update-note', $driver) }}">
+                            @csrf
+                            <div class="form-group">
+                                <textarea name="note" class="form-control" rows="4" maxlength="5000">{{ $driver->note }}</textarea>
+                            </div>
+                            <button type="submit" class="btn btn-primary">Save Note</button>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="panel panel-bordered">
                     <div class="panel-heading"><h3>Pricing</h3></div>
                     <div class="panel-body">
                         <form method="POST" action="{{ route('admin.drivers.pricing.update', $driver) }}">
@@ -176,8 +190,8 @@
                             <tbody>
                                 @foreach ($intercityRoutes as $route)
                                     @php($override = $driverIntercityOverrides->get($route->id))
-                                    @php($taxiEnabled = $override?->is_active_taxi ?? true)
-                                    @php($deliveryEnabled = $override?->is_active_delivery ?? true)
+                                    @php($taxiEnabled = $override?->is_active_taxi ?? $intercityDefaultActive)
+                                    @php($deliveryEnabled = $override?->is_active_delivery ?? $intercityDefaultActive)
                                     <tr>
                                         <td>{{ $route->name }}</td>
                                         <td>

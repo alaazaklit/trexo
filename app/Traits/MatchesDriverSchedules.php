@@ -116,6 +116,17 @@ trait MatchesDriverSchedules
             ->where(function ($q) {
                 $q->whereNull('drivers.approval_status')->orWhere('drivers.approval_status', 'approved');
             })
+            // A driver declares which services they accept from their own
+            // Pricing screen (offers_taxi/offers_delivery on `drivers`,
+            // default true). NULL is treated the same as true so a driver
+            // with no `drivers` row yet, or one created before these columns
+            // existed, keeps matching exactly as they did before this filter
+            // existed — same backward-compat pattern as approval_status
+            // just above.
+            ->where(function ($q) use ($orderType) {
+                $offersColumn = $orderType === 0 ? 'offers_taxi' : 'offers_delivery';
+                $q->whereNull("drivers.$offersColumn")->orWhere("drivers.$offersColumn", true);
+            })
             // A lapsed paid subscription does NOT exclude a driver — they
             // fall back to Basic (never expires) automatically, matching
             // SubscriptionService::currentSubscriptionFor exactly. This

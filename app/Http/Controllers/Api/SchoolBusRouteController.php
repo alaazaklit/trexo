@@ -80,6 +80,14 @@ class SchoolBusRouteController extends Controller
         ]);
     }
 
+    // Kept for backward compatibility with any client still calling it, but
+    // school-bus access no longer requires this request/approval step (see
+    // store() below) — a driver with no `drivers.school_bus_status` yet is
+    // already enabled. Deliberately does NOT let a 'rejected' driver
+    // self-transition to 'pending' anymore: since store() now treats
+    // 'pending' the same as 'approved', that used to be a loophole letting
+    // a driver bypass an explicit admin rejection just by hitting this
+    // endpoint again.
     public function enable()
     {
         $driver = $this->authenticatedDriver();
@@ -87,7 +95,7 @@ class SchoolBusRouteController extends Controller
             return response()->json(['result' => false, 'message' => 'Driver not found'], 404);
         }
 
-        if ($driver->school_bus_status === null || $driver->school_bus_status === 'rejected') {
+        if ($driver->school_bus_status === null) {
             $driver->school_bus_status = 'pending';
             $driver->save();
         }
@@ -123,8 +131,12 @@ class SchoolBusRouteController extends Controller
             return response()->json(['result' => false, 'message' => 'Driver not found'], 404);
         }
 
-        if ($driver->school_bus_status !== 'approved') {
-            return response()->json(['result' => false, 'message' => 'You must be an approved school bus driver to add routes'], 403);
+        // School-bus access is enabled by default — a driver becomes a
+        // school-bus driver simply by adding a route/price here, no separate
+        // request+admin-approval step required. Only an explicit admin
+        // action (suspended/rejected) blocks it.
+        if (in_array($driver->school_bus_status, ['suspended', 'rejected'], true)) {
+            return response()->json(['result' => false, 'message' => 'Your school bus access has been suspended or rejected'], 403);
         }
 
         $validator = Validator::make($request->all(), [

@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use Database\Factories\UserFactory;
+use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Facades\Hash;
@@ -12,7 +14,7 @@ use Tymon\JWTAuth\Contracts\JWTSubject;
 
 class User extends \TCG\Voyager\Models\User implements JWTSubject
 {
-    use Notifiable, HasRoles, SoftDeletes;
+    use HasRoles, Notifiable, SoftDeletes;
 
     protected $fillable = [
         'name',
@@ -55,6 +57,16 @@ class User extends \TCG\Voyager\Models\User implements JWTSubject
         'speed_kmh' => 'decimal:2',
         'last_seen_at' => 'datetime',
     ];
+
+    // Voyager's own base model hardcodes newFactory() to its own internal
+    // test-only factory class, which isn't shipped in vendor — that leaves
+    // User::factory() broken for every consumer of this package unless
+    // overridden here, the standard Laravel fix for a model that extends a
+    // package base class with its own (non-functional) factory binding.
+    protected static function newFactory(): Factory
+    {
+        return UserFactory::new();
+    }
 
     public function getJWTIdentifier()
     {
@@ -110,7 +122,7 @@ class User extends \TCG\Voyager\Models\User implements JWTSubject
         }
 
         $this->name = 'Deleted user';
-        $this->email = "deleted_{$this->id}_" . time() . '@deleted.local';
+        $this->email = "deleted_{$this->id}_".time().'@deleted.local';
         $this->phone = "deleted_{$this->id}";
         $this->password = Hash::make(Str::random(40));
         $this->fcm_token = null;

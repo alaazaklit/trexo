@@ -79,6 +79,7 @@ return [
             'not_found' => 'No Trexo account is registered with this phone number.',
             'wait' => 'Please wait :seconds seconds before requesting another code.',
             'invalid_otp' => 'That code is incorrect or has expired.',
+            'send_failed' => 'Could not send the verification code via WhatsApp. Please try again later.',
         ],
     ],
 

@@ -96,6 +96,11 @@ class DriverProfileController extends Controller
                 'price_per_km_override' => $driver?->price_per_km_override,
                 'detour_surcharge_override' => $driver?->detour_surcharge_override,
                 'reservation_multiplier_override' => $driver?->reservation_multiplier_override,
+                // A driver with no `drivers` row, or one created before this
+                // column existed, must read as fully eligible — never
+                // silently true=>false just because the row is missing.
+                'offers_taxi' => $driver?->offers_taxi ?? true,
+                'offers_delivery' => $driver?->offers_delivery ?? true,
                 'pricing_zone_id' => $driver?->pricing_zone_id,
                 'zones' => PricingZone::where('is_active', true)
                     ->orderBy('name')
@@ -120,6 +125,8 @@ class DriverProfileController extends Controller
             'detour_surcharge_override' => 'nullable|numeric',
             'reservation_multiplier_override' => 'nullable|numeric',
             'pricing_zone_id' => 'nullable|integer|exists:pricing_zones,id',
+            'offers_taxi' => 'nullable|boolean',
+            'offers_delivery' => 'nullable|boolean',
         ]);
 
         if ($validator->fails()) {
@@ -169,6 +176,29 @@ class DriverProfileController extends Controller
             $updates[$field] = $value;
         }
 
+        if ($request->has('offers_taxi')) {
+            $updates['offers_taxi'] = $request->boolean('offers_taxi');
+        }
+        if ($request->has('offers_delivery')) {
+            $updates['offers_delivery'] = $request->boolean('offers_delivery');
+        }
+
+        // A driver accepting neither service is almost certainly a mistake
+        // (they'd silently stop receiving any order at all) rather than
+        // intent, so it's rejected outright instead of saved.
+        $effectiveOffersTaxi = array_key_exists('offers_taxi', $updates)
+            ? $updates['offers_taxi']
+            : ($existingDriver?->offers_taxi ?? true);
+        $effectiveOffersDelivery = array_key_exists('offers_delivery', $updates)
+            ? $updates['offers_delivery']
+            : ($existingDriver?->offers_delivery ?? true);
+        if (!$effectiveOffersTaxi && !$effectiveOffersDelivery) {
+            return response()->json([
+                'result' => false,
+                'message' => 'يجب قبول خدمة واحدة على الأقل (تاكسي أو توصيل).',
+            ], 422);
+        }
+
         if (empty($updates)) {
             return response()->json([
                 'result' => false,
@@ -187,7 +217,10 @@ class DriverProfileController extends Controller
             // row here purely to store a price override must not silently
             // default them to 'pending' and make them stop being matched
             // until an admin approves them.
-            $driver = Driver::create(array_merge($updates, [
+            $driver = Driver::create(array_merge([
+                'offers_taxi' => true,
+                'offers_delivery' => true,
+            ], $updates, [
                 'user_id' => $user->id,
                 'approval_status' => 'approved',
             ]));
@@ -201,6 +234,8 @@ class DriverProfileController extends Controller
                 'price_per_km_override' => $driver->price_per_km_override,
                 'detour_surcharge_override' => $driver->detour_surcharge_override,
                 'reservation_multiplier_override' => $driver->reservation_multiplier_override,
+                'offers_taxi' => $driver->offers_taxi,
+                'offers_delivery' => $driver->offers_delivery,
                 'pricing_zone_id' => $driver->pricing_zone_id,
             ],
         ], 201);

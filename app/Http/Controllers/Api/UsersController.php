@@ -5,7 +5,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\User;
 use App\VerificationCode;
-use App\Services\WhatsAppService;
+use App\Services\UnlimitedMessagingService;
 use App\Services\Auth\RefreshTokenService;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Auth;
@@ -21,10 +21,10 @@ use Illuminate\Support\Str;
 
 class UsersController extends Controller
 {
-    private WhatsAppService $whatsAppService;
+    private UnlimitedMessagingService $whatsAppService;
     private RefreshTokenService $refreshTokenService;
 
-    public function __construct(WhatsAppService $whatsAppService, RefreshTokenService $refreshTokenService)
+    public function __construct(UnlimitedMessagingService $whatsAppService, RefreshTokenService $refreshTokenService)
     {
         $this->whatsAppService = $whatsAppService;
         $this->refreshTokenService = $refreshTokenService;
@@ -194,7 +194,14 @@ class UsersController extends Controller
             'used' => 0,
         ]);
 
-        $this->whatsAppService->sendOtp('961' . $phone, $verificationCode->code);
+        $sent = $this->whatsAppService->sendWhatsAppMessage($phone, "Your Trexo verification code is: {$verificationCode->code}");
+
+        if (!$sent && !config('app.debug')) {
+            return response()->json([
+                'result' => false,
+                'message' => 'تعذر إرسال رمز التحقق عبر واتساب، يرجى المحاولة لاحقاً',
+            ], 502);
+        }
 
         $response = [
             'result' => true,

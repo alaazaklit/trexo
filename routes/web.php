@@ -1,6 +1,6 @@
 <?php
 
-use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\AccountDeletionController;
 use App\Http\Controllers\Admin\AuditLogController;
 use App\Http\Controllers\Admin\BroadcastController;
 use App\Http\Controllers\Admin\CommissionPaymentController;
@@ -22,12 +22,12 @@ use App\Http\Controllers\Admin\SchoolController;
 use App\Http\Controllers\Admin\SubscriptionPlanController;
 use App\Http\Controllers\Admin\VehicleCategoryController;
 use App\Http\Controllers\Admin\WalletController;
-use App\Http\Controllers\AccountDeletionController;
 use App\Http\Controllers\ContactController;
 use App\Http\Controllers\DriverApplicationController;
 use App\Http\Controllers\LandingController;
 use App\Http\Controllers\PageController;
 use App\Http\Controllers\SitemapController;
+use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------
@@ -117,6 +117,7 @@ Route::group(['prefix' => 'admin'], function () {
         Route::post('/driver-management/{driver}/approval', [DriverManagementController::class, 'updateApprovalStatus'])->name('admin.drivers.update-approval');
         Route::post('/driver-management/{driver}/school-bus-status', [DriverManagementController::class, 'updateSchoolBusStatus'])->name('admin.drivers.update-school-bus-status');
         Route::post('/driver-management/{driver}/vehicle', [DriverManagementController::class, 'updateVehicle'])->name('admin.drivers.update-vehicle');
+        Route::post('/driver-management/{driver}/note', [DriverManagementController::class, 'updateNote'])->name('admin.drivers.update-note');
         Route::post('/driver-management/{driver}/gender', [DriverManagementController::class, 'updateGender'])->name('admin.drivers.update-gender');
         Route::post('/driver-management/{driver}/documents', [DriverManagementController::class, 'uploadDocument'])->name('admin.drivers.upload-document');
         Route::post('/driver-documents/{document}/review', [DriverManagementController::class, 'reviewDocument'])->name('admin.drivers.documents.review');
@@ -223,6 +224,9 @@ Route::group(['prefix' => 'admin'], function () {
 
     Route::middleware(['web', 'auth', 'permission:broadcasts.manage'])->group(function () {
         Route::post('/broadcasts', [BroadcastController::class, 'store'])->name('admin.broadcasts.store');
+        Route::post('/broadcasts/excel/preview', [BroadcastController::class, 'excelPreview'])->name('admin.broadcasts.excel.preview');
+        Route::post('/broadcasts/excel/send', [BroadcastController::class, 'excelSend'])->name('admin.broadcasts.excel.send');
+        Route::post('/broadcasts/excel/cancel', [BroadcastController::class, 'excelCancel'])->name('admin.broadcasts.excel.cancel');
     });
 
     Route::middleware(['web', 'auth', 'permission:finance.view'])->group(function () {

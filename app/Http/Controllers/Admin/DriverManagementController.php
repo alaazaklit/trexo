@@ -19,9 +19,7 @@ class DriverManagementController extends Controller
 {
     use MatchesDriverSchedules;
 
-    public function __construct(private readonly DriverManagementService $service)
-    {
-    }
+    public function __construct(private readonly DriverManagementService $service) {}
 
     public function index(Request $request): View
     {
@@ -52,6 +50,15 @@ class DriverManagementController extends Controller
         $zone = $driver->pricing_zone_id ? PricingZone::find($driver->pricing_zone_id) : null;
         $overrideBounds = $this->getOverrideBounds($zone);
 
+        // Same "grandfathered vs. must opt in" default findMatchingDrivers()
+        // actually applies (see getLongDistanceOptInCutoff), so this admin
+        // table's "Enabled for this driver" fallback for routes with no
+        // override row matches the driver's real eligibility instead of
+        // always reading true.
+        $cutoff = $this->getLongDistanceOptInCutoff();
+        $intercityDefaultActive = ! ($cutoff !== null && $driver->user->created_at !== null
+            && $driver->user->created_at->toDateTimeString() >= $cutoff);
+
         return view('admin.drivers.show', [
             'pageTitle' => 'Driver: '.($driver->user->name ?: $driver->user->phone),
             'driver' => $driver,
@@ -64,6 +71,7 @@ class DriverManagementController extends Controller
             'intercityRoutes' => IntercityRoute::with(['fromZone', 'toZone'])->get(),
             'driverIntercityOverrides' => $driverIntercityOverrides,
             'overrideBounds' => $overrideBounds,
+            'intercityDefaultActive' => $intercityDefaultActive,
         ]);
     }
 
@@ -170,6 +178,17 @@ class DriverManagementController extends Controller
         $driver->update($data);
 
         return back()->with('success', 'Vehicle details updated.');
+    }
+
+    public function updateNote(Request $request, Driver $driver): RedirectResponse
+    {
+        $data = $request->validate([
+            'note' => 'nullable|string|max:5000',
+        ]);
+
+        $driver->update(['note' => $data['note'] ?? null]);
+
+        return back()->with('success', 'Driver note updated.');
     }
 
     public function destroy(Request $request, Driver $driver): RedirectResponse
