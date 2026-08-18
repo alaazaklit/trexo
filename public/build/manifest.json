@@ -61,12 +61,12 @@
     "src": "resources/js/driver-simulator.css"
   },
   "resources/css/public-ltr.css": {
-    "file": "assets/public-ltr-16755df7.css",
+    "file": "assets/public-ltr-6a0444b3.css",
     "isEntry": true,
     "src": "resources/css/public-ltr.css"
   },
   "resources/css/public-rtl.css": {
-    "file": "assets/public-rtl-b43124e7.css",
+    "file": "assets/public-rtl-c19e9f2f.css",
     "isEntry": true,
     "src": "resources/css/public-rtl.css"
   },
@@ -83,7 +83,7 @@
     "css": [
       "assets/dashboard-a3b0c44d.css"
     ],
-    "file": "assets/dashboard-41ad0283.js",
+    "file": "assets/dashboard-20a8fa98.js",
     "isEntry": true,
     "src": "resources/js/dashboard.js"
   },
