@@ -15,6 +15,7 @@ class Kernel extends ConsoleKernel
         // $schedule->command('inspire')->hourly();
         $schedule->command('subscriptions:sweep-expired')->hourly();
         $schedule->command('school-bus:check-proximity')->everyMinute();
+        $schedule->command('drivers:enforce-grace-period')->hourly();
     }
 
     /**

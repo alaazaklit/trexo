@@ -23,7 +23,12 @@ class ReservationOpsService
             ->where('users.type', 'driver')
             ->where('users.is_available', true)
             ->where(function ($q) {
-                $q->whereNull('drivers.approval_status')->orWhere('drivers.approval_status', 'approved');
+                $q->whereNull('drivers.approval_status')
+                    ->orWhere('drivers.approval_status', 'approved')
+                    ->orWhere(function ($q2) {
+                        $q2->where('drivers.approval_status', 'grace_period')
+                            ->where('drivers.grace_period_ends_at', '>', now());
+                    });
             })
             ->select('users.id', 'users.name', 'users.phone', 'drivers.rating')
             ->get();

@@ -40,6 +40,8 @@ Route::middleware(['auth:api'])->group(function () {
     Route::post('/driver/pricing/test', [App\Http\Controllers\Api\DriverProfileController::class, 'testPrice'])->name('driverTestPrice');
     Route::get('/driver/intercity-routes', [App\Http\Controllers\Api\DriverProfileController::class, 'getIntercityRouteOverrides'])->name('getDriverIntercityRoutes');
     Route::post('/driver/intercity-routes', [App\Http\Controllers\Api\DriverProfileController::class, 'updateIntercityRouteOverride'])->name('updateDriverIntercityRoute');
+    Route::get('/driver/verification-status', [App\Http\Controllers\Api\DriverProfileController::class, 'verificationStatus'])->name('driverVerificationStatus');
+    Route::post('/driver/verification-documents', [App\Http\Controllers\Api\DriverProfileController::class, 'uploadVerificationDocument'])->name('driverUploadVerificationDocument');
 
 
      // Driver Routes

@@ -20,6 +20,12 @@ class Order extends Model
         'tracking_id',
         'price',
         'arrival_confirmation_count',
+        'base_fare',
+        'per_km_rate',
+        'effective_per_km_rate',
+        'out_of_zone_percent',
+        'is_out_of_zone',
+        'pricing_zone_id',
     ];
 
     protected $casts = [
@@ -27,6 +33,12 @@ class Order extends Model
         'route_distance_km' => 'decimal:3',
         'price' => 'decimal:2',
         'arrival_confirmation_count' => 'integer',
+        'base_fare' => 'decimal:2',
+        'per_km_rate' => 'decimal:2',
+        'effective_per_km_rate' => 'decimal:2',
+        'out_of_zone_percent' => 'decimal:2',
+        'is_out_of_zone' => 'boolean',
+        'pricing_zone_id' => 'integer',
     ];
 
     public function seller()

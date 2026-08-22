@@ -56,6 +56,7 @@ class User extends \TCG\Voyager\Models\User implements JWTSubject
         'heading' => 'decimal:2',
         'speed_kmh' => 'decimal:2',
         'last_seen_at' => 'datetime',
+        'otp_counter_reset_at' => 'datetime',
     ];
 
     // Voyager's own base model hardcodes newFactory() to its own internal

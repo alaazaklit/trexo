@@ -66,6 +66,7 @@ class DriverManagementController extends Controller
             'statuses' => DriverManagementService::APPROVAL_STATUSES,
             'schoolBusStatuses' => Driver::SCHOOL_BUS_STATUSES,
             'documentTypes' => DriverManagementService::DOCUMENT_TYPES,
+            'requiredVerificationDocuments' => Driver::REQUIRED_VERIFICATION_DOCUMENTS,
             'vehicleCategories' => VehicleCategory::orderBy('name')->get(),
             'pricingZones' => PricingZone::orderBy('name')->get(),
             'intercityRoutes' => IntercityRoute::with(['fromZone', 'toZone'])->get(),

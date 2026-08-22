@@ -40,6 +40,8 @@ class RolesAndPermissionsSeeder extends Seeder
         'pricing.view',
         'pricing.manage',
         'request-reports.view',
+        'maps.view',
+        'maps.manage',
     ];
 
     private const ROLE_PERMISSIONS = [

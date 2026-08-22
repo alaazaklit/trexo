@@ -3,18 +3,28 @@
 namespace Tests\Unit;
 
 use App\Services\UnlimitedMessagingService;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use TCG\Voyager\Models\Setting;
 use Tests\TestCase;
 
 class UnlimitedMessagingServiceTest extends TestCase
 {
+    use DatabaseTransactions;
+
     private function configureProvider(): void
     {
         config([
             'services.unlimited_messaging.api_url' => 'https://api.unlimitedmessaging.app',
             'services.unlimited_messaging.api_token' => 'test-token-123',
         ]);
+    }
+
+    private function setSimSettings(?string $primary, ?string $backup): void
+    {
+        Setting::updateOrCreate(['key' => 'messaging.whatsapp_sim_id'], ['value' => $primary ?? '']);
+        Setting::updateOrCreate(['key' => 'messaging.whatsapp_backup_sim_id'], ['value' => $backup ?? '']);
     }
 
     public function test_sends_message_with_correct_request_shape_and_returns_true_on_success(): void
@@ -73,6 +83,20 @@ class UnlimitedMessagingServiceTest extends TestCase
 
         Http::fake([
             'api.unlimitedmessaging.app/message' => Http::response(['message' => 'unauthorized'], 401),
+        ]);
+
+        $service = new UnlimitedMessagingService();
+        $result = $service->sendWhatsAppMessage('71234567', 'code 123456');
+
+        $this->assertFalse($result);
+    }
+
+    public function test_returns_false_on_provider_rate_limit_429(): void
+    {
+        $this->configureProvider();
+
+        Http::fake([
+            'api.unlimitedmessaging.app/message' => Http::response(['message' => 'too many requests'], 429),
         ]);
 
         $service = new UnlimitedMessagingService();
@@ -144,5 +168,82 @@ class UnlimitedMessagingServiceTest extends TestCase
 
                 return !str_contains($haystack, '654321') && !str_contains($haystack, 'test-token-123');
             });
+    }
+
+    // --- primary/backup sim failover --------------------------------------
+
+    public function test_uses_the_admin_configured_primary_sim_id_when_set(): void
+    {
+        $this->configureProvider();
+        $this->setSimSettings(primary: 'sim_primary_123', backup: null);
+
+        Http::fake(['api.unlimitedmessaging.app/message' => Http::response(['status' => 'SENT'], 201)]);
+
+        $result = (new UnlimitedMessagingService())->sendWhatsAppMessage('71234567', 'code');
+
+        $this->assertTrue($result);
+        Http::assertSent(fn ($request) => $request['simId'] === 'sim_primary_123');
+        Http::assertSentCount(1);
+    }
+
+    public function test_falls_back_to_env_sim_id_when_no_setting_is_configured(): void
+    {
+        $this->configureProvider();
+        config(['services.unlimited_messaging.sim_id' => 'sim_from_env']);
+        $this->setSimSettings(primary: null, backup: null);
+
+        Http::fake(['api.unlimitedmessaging.app/message' => Http::response(['status' => 'SENT'], 201)]);
+
+        (new UnlimitedMessagingService())->sendWhatsAppMessage('71234567', 'code');
+
+        Http::assertSent(fn ($request) => $request['simId'] === 'sim_from_env');
+    }
+
+    public function test_retries_on_backup_sim_when_primary_send_fails(): void
+    {
+        $this->configureProvider();
+        $this->setSimSettings(primary: 'sim_blocked', backup: 'sim_backup');
+
+        $attempt = 0;
+        Http::fake(function ($request) use (&$attempt) {
+            $attempt++;
+            // First attempt (primary, blocked) fails; second (backup) succeeds.
+            return $attempt === 1
+                ? Http::response(['message' => 'number blocked'], 403)
+                : Http::response(['status' => 'SENT'], 201);
+        });
+
+        $result = (new UnlimitedMessagingService())->sendWhatsAppMessage('71234567', 'code');
+
+        $this->assertTrue($result);
+        Http::assertSentCount(2);
+        Http::assertSent(fn ($request) => $request['simId'] === 'sim_blocked');
+        Http::assertSent(fn ($request) => $request['simId'] === 'sim_backup');
+    }
+
+    public function test_returns_false_when_both_primary_and_backup_sims_fail(): void
+    {
+        $this->configureProvider();
+        $this->setSimSettings(primary: 'sim_blocked', backup: 'sim_also_blocked');
+
+        Http::fake(['api.unlimitedmessaging.app/message' => Http::response(['message' => 'blocked'], 403)]);
+
+        $result = (new UnlimitedMessagingService())->sendWhatsAppMessage('71234567', 'code');
+
+        $this->assertFalse($result);
+        Http::assertSentCount(2);
+    }
+
+    public function test_does_not_retry_when_no_backup_sim_is_configured(): void
+    {
+        $this->configureProvider();
+        $this->setSimSettings(primary: 'sim_blocked', backup: null);
+
+        Http::fake(['api.unlimitedmessaging.app/message' => Http::response(['message' => 'blocked'], 403)]);
+
+        $result = (new UnlimitedMessagingService())->sendWhatsAppMessage('71234567', 'code');
+
+        $this->assertFalse($result);
+        Http::assertSentCount(1);
     }
 }

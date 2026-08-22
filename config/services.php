@@ -39,9 +39,19 @@ return [
         'key' => env('GOOGLE_MAPS_KEY'),
     ],
 
+    'mapbox' => [
+        'token' => env('MAPBOX_ACCESS_TOKEN'),
+    ],
+
     'unlimited_messaging' => [
         'api_url' => env('UNLIMITED_MESSAGING_API_URL', 'https://api.unlimitedmessaging.app'),
         'api_token' => env('UNLIMITED_MESSAGING_API_TOKEN'),
+        // Only required once more than one WhatsApp number is registered on
+        // this account — the API rejects the request with "Multiple SIMs
+        // available, please specify a simId" otherwise. Null/unset is fine
+        // (and simply omitted from the request) when only one number is
+        // connected, matching this integration's original behavior.
+        'sim_id' => env('UNLIMITED_MESSAGING_SIM_ID'),
     ],
 
     // Google Play review / demo account — a single dedicated phone number

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Driver;
+use App\Models\DriverDocument;
 use App\Models\DriverGalleryImage;
 use App\Models\DriverIntercityRouteOverride;
 use App\Models\DriverServiceLine;
@@ -28,6 +29,17 @@ class DriverProfileController extends Controller
         'price_per_km_override' => 'price_per_km',
         'detour_surcharge_override' => 'detour_surcharge',
         'reservation_multiplier_override' => 'reservation_multiplier',
+        'out_of_zone_percent_override' => 'out_of_zone_percent',
+    ];
+
+    // These three are the driver's own plain settings (see the simplified
+    // pricing card) — no longer bounded to an admin-computed ±% envelope
+    // around the zone/global default. detour_surcharge_override and
+    // reservation_multiplier_override (the "Advanced" section) still are.
+    private const UNBOUNDED_OVERRIDE_FIELDS = [
+        'base_fare_override',
+        'price_per_km_override',
+        'out_of_zone_percent_override',
     ];
 
     // Seller-facing: everything needed to render the Driver Details page for
@@ -96,6 +108,7 @@ class DriverProfileController extends Controller
                 'price_per_km_override' => $driver?->price_per_km_override,
                 'detour_surcharge_override' => $driver?->detour_surcharge_override,
                 'reservation_multiplier_override' => $driver?->reservation_multiplier_override,
+                'out_of_zone_percent_override' => $driver?->out_of_zone_percent_override,
                 // A driver with no `drivers` row, or one created before this
                 // column existed, must read as fully eligible — never
                 // silently true=>false just because the row is missing.
@@ -124,6 +137,7 @@ class DriverProfileController extends Controller
             'price_per_km_override' => 'nullable|numeric',
             'detour_surcharge_override' => 'nullable|numeric',
             'reservation_multiplier_override' => 'nullable|numeric',
+            'out_of_zone_percent_override' => 'nullable|numeric',
             'pricing_zone_id' => 'nullable|integer|exists:pricing_zones,id',
             'offers_taxi' => 'nullable|boolean',
             'offers_delivery' => 'nullable|boolean',
@@ -165,12 +179,26 @@ class DriverProfileController extends Controller
             }
 
             $value = (float) $value;
-            $range = $bounds[$boundsKey];
-            if ($value < $range['min'] || $value > $range['max']) {
-                return response()->json([
-                    'result' => false,
-                    'message' => "القيمة يجب أن تكون بين {$range['min']} و {$range['max']}.",
-                ], 422);
+
+            if (in_array($field, self::UNBOUNDED_OVERRIDE_FIELDS, true)) {
+                // No allowed-range check for these — just a basic sanity
+                // floor, since a negative base fare/per-km/out-of-zone
+                // percent would produce a nonsensical (or negative) price
+                // downstream.
+                if ($value < 0) {
+                    return response()->json([
+                        'result' => false,
+                        'message' => 'القيمة يجب أن تكون صفر أو أكثر.',
+                    ], 422);
+                }
+            } else {
+                $range = $bounds[$boundsKey];
+                if ($value < $range['min'] || $value > $range['max']) {
+                    return response()->json([
+                        'result' => false,
+                        'message' => "القيمة يجب أن تكون بين {$range['min']} و {$range['max']}.",
+                    ], 422);
+                }
             }
 
             $updates[$field] = $value;
@@ -234,6 +262,7 @@ class DriverProfileController extends Controller
                 'price_per_km_override' => $driver->price_per_km_override,
                 'detour_surcharge_override' => $driver->detour_surcharge_override,
                 'reservation_multiplier_override' => $driver->reservation_multiplier_override,
+                'out_of_zone_percent_override' => $driver->out_of_zone_percent_override,
                 'offers_taxi' => $driver->offers_taxi,
                 'offers_delivery' => $driver->offers_delivery,
                 'pricing_zone_id' => $driver->pricing_zone_id,
@@ -311,7 +340,24 @@ class DriverProfileController extends Controller
                 $this->getNormalPricePerKm($orderType, null),
                 $crossesZones
             );
-        $sharedRidePricePerKm = $normalPricePerKm * $this->getSettingFloat('fare.shared_multiplier', 0.70);
+
+        // Same out-of-zone surcharge findMatchingDrivers() applies — see the
+        // comment there. $driver->pricing_zone_id is this driver's own
+        // chosen working zone, a different concept from $zone/$destinationZone
+        // above (which are the trip's pickup/destination zones).
+        $isOutOfZone = $driver?->pricing_zone_id !== null
+            && $intercityRoute === null
+            && $destinationZone === null;
+        $outOfZonePercent = 0.0;
+        $effectivePricePerKm = $normalPricePerKm;
+        if ($isOutOfZone) {
+            $outOfZonePercent = $driver->out_of_zone_percent_override !== null
+                ? (float) $driver->out_of_zone_percent_override
+                : $this->getOutOfZonePercentDefault();
+            $effectivePricePerKm = FareCalculator::applyOutOfZonePercent($normalPricePerKm, $outOfZonePercent);
+        }
+
+        $sharedRidePricePerKm = $effectivePricePerKm * $this->getSettingFloat('fare.shared_multiplier', 0.70);
         $detourSurchargePerKm = $driver?->detour_surcharge_override !== null
             ? (float) $driver->detour_surcharge_override
             : $this->getDetourSurchargePerKm();
@@ -333,7 +379,7 @@ class DriverProfileController extends Controller
 
         $priceUsd = FareCalculator::calculate(
             $baseFare,
-            $normalPricePerKm,
+            $effectivePricePerKm,
             $sharedRidePricePerKm,
             $detourSurchargePerKm,
             $distanceKm,
@@ -358,6 +404,8 @@ class DriverProfileController extends Controller
                 'duration_minutes' => $durationMinutes,
                 'calculated_price_lbp' => $calculatedPriceLbp,
                 'final_price_lbp' => $finalPriceLbp,
+                'is_out_of_zone' => $isOutOfZone,
+                'out_of_zone_percent' => $outOfZonePercent,
             ],
         ]);
     }
@@ -630,6 +678,78 @@ class DriverProfileController extends Controller
             ->delete();
 
         return response()->json(['result' => true, 'message' => 'تم الحذف بنجاح']);
+    }
+
+    // Driver-facing: powers the grace-period banner and the document-lock
+    // screen. Returned on its own (rather than only inside login/refresh
+    // responses) so the app can re-check it after every document upload and
+    // at any later app-resume without forcing a full re-login.
+    public function verificationStatus(Request $request)
+    {
+        $user = JWTAuth::parseToken()->authenticate();
+        $driver = Driver::where('user_id', $user->id)->first();
+
+        return response()->json([
+            'result' => true,
+            'data' => $driver?->verificationStatus() ?? [
+                'approval_status' => null,
+                'grace_period_ends_at' => null,
+                'grace_days_remaining' => 0,
+                'documents_uploaded' => array_fill_keys(Driver::REQUIRED_VERIFICATION_DOCUMENTS, false),
+                'is_locked' => false,
+            ],
+        ]);
+    }
+
+    // Driver-facing: self-service upload for one of the 3 required
+    // verification documents (id_card/license/selfie). Mirrors
+    // DriverManagementService::uploadDocument's admin-side file handling,
+    // but is reachable by the driver themselves — re-uploading a type
+    // replaces the previous pending/rejected row rather than piling up
+    // duplicates, since only the latest submission should count towards
+    // Driver::hasAllRequiredDocuments().
+    public function uploadVerificationDocument(Request $request)
+    {
+        $user = JWTAuth::parseToken()->authenticate();
+
+        $validator = Validator::make($request->all(), [
+            'document_type' => 'required|string|in:' . implode(',', Driver::REQUIRED_VERIFICATION_DOCUMENTS),
+            'file' => 'required|file|mimetypes:image/jpeg,image/png,image/jpg,image/webp,image/heic,image/heif|max:20480',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['result' => false, 'message' => $validator->errors()->first()], 422);
+        }
+
+        $driver = Driver::where('user_id', $user->id)->first();
+        if (!$driver) {
+            return response()->json(['result' => false, 'message' => 'Driver record not found'], 404);
+        }
+
+        $documentType = $request->input('document_type');
+        $file = $request->file('file');
+        $fileName = time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
+        Storage::disk('public')->putFileAs('driver_documents', $file, $fileName);
+
+        $existing = DriverDocument::where('driver_id', $driver->id)
+            ->where('document_type', $documentType)
+            ->first();
+        if ($existing) {
+            Storage::disk('public')->delete($existing->file_path);
+            $existing->delete();
+        }
+
+        DriverDocument::create([
+            'driver_id' => $driver->id,
+            'document_type' => $documentType,
+            'file_path' => 'driver_documents/' . $fileName,
+        ]);
+
+        return response()->json([
+            'result' => true,
+            'message' => 'تم رفع المستند بنجاح',
+            'data' => $driver->fresh()->verificationStatus(),
+        ], 201);
     }
 
     public function uploadGalleryImage(Request $request)

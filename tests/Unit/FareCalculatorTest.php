@@ -356,4 +356,51 @@ class FareCalculatorTest extends TestCase
 
         $this->assertSame(round(2860000 / 89500, 2), $priceUsd);
     }
+
+    // --- applyOutOfZonePercent() --------------------------------------------
+    // Pure multiplication used once MatchesDriverSchedules::findMatchingDrivers
+    // has already decided a trip counts as out-of-zone (destination didn't
+    // resolve to any pricing zone at all, driver has a chosen working zone,
+    // and no intercity fixed fare applies) — the zone-lookup/eligibility
+    // decision itself needs a DB and is covered by Feature tests instead.
+
+    public function test_out_of_zone_percent_increases_the_per_km_rate(): void
+    {
+        // 50,000 LBP/km at +20% -> 60,000 LBP/km, matching the feature's own
+        // worked example exactly.
+        $rate = FareCalculator::applyOutOfZonePercent(50000.0, 20.0);
+
+        $this->assertSame(60000.0, $rate);
+    }
+
+    public function test_out_of_zone_percent_of_zero_leaves_the_rate_unchanged(): void
+    {
+        $rate = FareCalculator::applyOutOfZonePercent(50000.0, 0.0);
+
+        $this->assertSame(50000.0, $rate);
+    }
+
+    public function test_out_of_zone_surcharge_feeds_into_calculate_and_still_rounds_correctly(): void
+    {
+        // Driver: 200,000 LBP base + 50,000 LBP/km, 20% out-of-zone increase,
+        // a 10km out-of-zone trip -> effective rate 60,000 LBP/km.
+        $effectiveRate = FareCalculator::applyOutOfZonePercent(50000.0, 20.0);
+
+        $price = FareCalculator::calculate(
+            baseFare: 200000.0,
+            normalPricePerKm: $effectiveRate,
+            sharedRidePricePerKm: $effectiveRate * 0.7,
+            detourSurchargePerKm: 0.0,
+            distanceKm: 10.0,
+            onRoute: false,
+            detourKm: 0.0,
+            reservationMultiplier: 1.0,
+            intercityFixedFare: null,
+        );
+
+        // 200,000 + 10*60,000 = 800,000 -- already an exact multiple of
+        // 20,000, so rounding is a no-op here.
+        $this->assertSame(800000.0, $price);
+        $this->assertSame(800000, FareCalculator::roundToNearestLbp((int) $price));
+    }
 }

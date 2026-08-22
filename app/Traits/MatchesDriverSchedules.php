@@ -101,10 +101,12 @@ trait MatchesDriverSchedules
         // checked explicitly.
         //
         // A driver who hasn't cleared document/vehicle approval yet
-        // (drivers.approval_status = 'pending'/'rejected') must not be
-        // selectable even if is_available got flipped true, matching the
-        // same approval gate already enforced in OrderOpsService and
-        // ReservationOpsService's own candidate-driver queries.
+        // (drivers.approval_status = 'pending'/'rejected'/'documents_required')
+        // must not be selectable even if is_available got flipped true,
+        // matching the same approval gate already enforced in OrderOpsService
+        // and ReservationOpsService's own candidate-driver queries. A driver
+        // still inside their unexpired 7-day document grace period is
+        // treated the same as 'approved' — see Driver::isVerificationLocked().
         $driverRows = DB::table('users')
             ->leftJoin('drivers', 'drivers.user_id', '=', 'users.id')
             ->where('users.type', 'driver')
@@ -114,7 +116,12 @@ trait MatchesDriverSchedules
                 $q->where('users.gender', $genderFilter);
             })
             ->where(function ($q) {
-                $q->whereNull('drivers.approval_status')->orWhere('drivers.approval_status', 'approved');
+                $q->whereNull('drivers.approval_status')
+                    ->orWhere('drivers.approval_status', 'approved')
+                    ->orWhere(function ($q2) {
+                        $q2->where('drivers.approval_status', 'grace_period')
+                            ->where('drivers.grace_period_ends_at', '>', now());
+                    });
             })
             // A driver declares which services they accept from their own
             // Pricing screen (offers_taxi/offers_delivery on `drivers`,
@@ -176,6 +183,7 @@ trait MatchesDriverSchedules
                 'drivers.price_per_km_override as price_per_km_override',
                 'drivers.detour_surcharge_override as detour_surcharge_override',
                 'drivers.reservation_multiplier_override as reservation_multiplier_override',
+                'drivers.out_of_zone_percent_override as out_of_zone_percent_override',
                 'schedules.time_from',
                 'schedules.time_to',
                 'schedules.route_points as route_points',
@@ -272,7 +280,32 @@ trait MatchesDriverSchedules
                     $this->getNormalPricePerKm($orderType, null),
                     $crossesZones
                 );
-            $sharedRidePricePerKm = $normalPricePerKm * $this->getSettingFloat('fare.shared_multiplier', 0.70);
+
+            // Out-of-zone surcharge: a driver who's chosen a working zone and
+            // whose destination doesn't resolve to ANY zone at all (a real,
+            // already-confirmed gap — an unlisted village's name from Google
+            // simply isn't in any zone's keyword list, same root cause as the
+            // Majdelyoun case) gets charged their own out-of-zone percentage
+            // on top of their normal per-km rate, instead of either being
+            // excluded (destination resolving to a genuinely different,
+            // *registered* zone is a separate, unchanged case — still
+            // handled by the eligibility check above / intercity routes) or
+            // silently charged the plain in-zone rate for a trip that may
+            // well be well outside it. An explicit intercity fixed fare
+            // always takes priority and needs no per-km surcharge at all.
+            $isOutOfZone = $driverRow->pricing_zone_id !== null
+                && $intercityRoute === null
+                && $destinationZone === null;
+            $outOfZonePercent = 0.0;
+            $effectivePricePerKm = $normalPricePerKm;
+            if ($isOutOfZone) {
+                $outOfZonePercent = $driverRow->out_of_zone_percent_override !== null
+                    ? (float) $driverRow->out_of_zone_percent_override
+                    : $this->getOutOfZonePercentDefault();
+                $effectivePricePerKm = FareCalculator::applyOutOfZonePercent($normalPricePerKm, $outOfZonePercent);
+            }
+
+            $sharedRidePricePerKm = $effectivePricePerKm * $this->getSettingFloat('fare.shared_multiplier', 0.70);
             $detourSurchargePerKm = $driverRow->detour_surcharge_override !== null
                 ? (float) $driverRow->detour_surcharge_override
                 : $this->getDetourSurchargePerKm();
@@ -301,7 +334,7 @@ trait MatchesDriverSchedules
 
             $price = FareCalculator::calculate(
                 $baseFare,
-                $normalPricePerKm,
+                $effectivePricePerKm,
                 $sharedRidePricePerKm,
                 $detourSurchargePerKm,
                 $passengerDistanceKm,
@@ -321,6 +354,17 @@ trait MatchesDriverSchedules
                 'fcm_token' => $driverRow->fcm_token,
                 'driver_rating' => $this->normalizeRating($driverRow->driver_rating),
                 'price' => $price,
+                // Pricing snapshot — echoed straight back by the client at
+                // ChooseDriver/ChooseReservationDriver time and persisted on
+                // the order/reservation row, same trust model `price` above
+                // already uses, so a trip's recorded breakdown never changes
+                // even if the driver edits their pricing afterward.
+                'base_fare' => $baseFare,
+                'per_km_rate' => $normalPricePerKm,
+                'effective_per_km_rate' => $effectivePricePerKm,
+                'out_of_zone_percent' => $outOfZonePercent,
+                'is_out_of_zone' => $isOutOfZone,
+                'pricing_zone_id' => $zone?->id,
                 'estimated_pickup_minutes' => $this->estimateRealPickupMinutes(
                     $driverRow,
                     $pickup,
@@ -840,6 +884,16 @@ trait MatchesDriverSchedules
         return $this->getSettingFloat('fare.detour_surcharge_per_km', 0.25);
     }
 
+    protected function getOutOfZonePercentDefault(): float
+    {
+        return $this->getSettingFloat('fare.out_of_zone_percent_default', 20.0);
+    }
+
+    protected function getOutOfZonePercentMax(): float
+    {
+        return $this->getSettingFloat('fare.out_of_zone_percent_max', 100.0);
+    }
+
     protected function getMaxDetourKm(): float
     {
         return $this->getSettingFloat('fare.max_detour_km', 5.0);
@@ -940,6 +994,14 @@ trait MatchesDriverSchedules
                 'min' => round($reservationMultiplier * (1 - $percent), 2),
                 'max' => round($reservationMultiplier * (1 + $percent), 2),
                 'default' => $reservationMultiplier,
+            ],
+            // Not an envelope around a computed rate like the fields above —
+            // this is itself a percentage knob, so its bounds come directly
+            // from the two admin-configured settings instead.
+            'out_of_zone_percent' => [
+                'min' => 0.0,
+                'max' => $this->getOutOfZonePercentMax(),
+                'default' => $this->getOutOfZonePercentDefault(),
             ],
         ];
     }

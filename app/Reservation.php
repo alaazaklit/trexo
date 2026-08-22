@@ -22,6 +22,12 @@ class Reservation extends Model
         'tracking_id',
         'order_kind',
         'price',
+        'base_fare',
+        'per_km_rate',
+        'effective_per_km_rate',
+        'out_of_zone_percent',
+        'is_out_of_zone',
+        'pricing_zone_id',
     ];
 
     protected $casts = [
@@ -32,6 +38,12 @@ class Reservation extends Model
         'start_date_time' => 'datetime',
         'end_date_time' => 'datetime',
         'price' => 'decimal:2',
+        'base_fare' => 'decimal:2',
+        'per_km_rate' => 'decimal:2',
+        'effective_per_km_rate' => 'decimal:2',
+        'out_of_zone_percent' => 'decimal:2',
+        'is_out_of_zone' => 'boolean',
+        'pricing_zone_id' => 'integer',
     ];
 
     public function seller()

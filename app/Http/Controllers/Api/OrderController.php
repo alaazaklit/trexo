@@ -303,6 +303,16 @@ function ChooseDriver(Request $request, FcmMessagingService $Notification)
     // — persisted here so it's the same number shown everywhere afterwards,
     // rather than recomputed later against different live driver settings.
     $price = $request->input('price');
+    // Same trust-the-client-echo convention as $price above, for the
+    // breakdown that produced it — so a later change to the driver's own
+    // pricing (or the zone they work in) never alters what this specific
+    // trip is on record as having actually charged.
+    $base_fare = $request->input('base_fare');
+    $per_km_rate = $request->input('per_km_rate');
+    $effective_per_km_rate = $request->input('effective_per_km_rate');
+    $out_of_zone_percent = $request->input('out_of_zone_percent');
+    $is_out_of_zone = $request->input('is_out_of_zone');
+    $pricing_zone_id = $request->input('pricing_zone_id');
 
     // Step 3: Find the order based on the order_id and user_id
     $order = Order::where('id', $order_id)
@@ -321,6 +331,24 @@ function ChooseDriver(Request $request, FcmMessagingService $Notification)
     $order->status ="waiting_driver_response";
     if (is_numeric($price)) {
         $order->price = round((float) $price, 2);
+    }
+    if (is_numeric($base_fare)) {
+        $order->base_fare = round((float) $base_fare, 2);
+    }
+    if (is_numeric($per_km_rate)) {
+        $order->per_km_rate = round((float) $per_km_rate, 2);
+    }
+    if (is_numeric($effective_per_km_rate)) {
+        $order->effective_per_km_rate = round((float) $effective_per_km_rate, 2);
+    }
+    if (is_numeric($out_of_zone_percent)) {
+        $order->out_of_zone_percent = round((float) $out_of_zone_percent, 2);
+    }
+    if ($is_out_of_zone !== null) {
+        $order->is_out_of_zone = filter_var($is_out_of_zone, FILTER_VALIDATE_BOOLEAN);
+    }
+    if (is_numeric($pricing_zone_id)) {
+        $order->pricing_zone_id = (int) $pricing_zone_id;
     }
     // Clear any acceptance left over from a previous driver (e.g. this
     // order already went through one driver who accepted, then failed the

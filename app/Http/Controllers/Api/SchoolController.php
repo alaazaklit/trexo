@@ -160,6 +160,18 @@ class SchoolController extends Controller
         $validator = Validator::make($request->all(), [
             'place_id' => 'required|string|max:200',
             'language' => 'nullable|string|max:10',
+            // Optional pre-resolved data — the driver's own autocomplete
+            // widget already did its own Google Details lookup for this
+            // exact place_id to get coordinates for the map camera, before
+            // this endpoint is even called. When all four are present, they
+            // came from that same lookup, so this endpoint reuses them
+            // directly instead of firing a second, separate Google Details
+            // call for the same place_id. Any caller that can't supply them
+            // still works — see the Google-calling fallback below.
+            'name' => 'nullable|string|max:255',
+            'formatted_address' => 'nullable|string|max:500',
+            'lat' => 'nullable|numeric',
+            'lng' => 'nullable|numeric',
         ]);
 
         if ($validator->fails()) {
@@ -177,36 +189,64 @@ class SchoolController extends Controller
             ]);
         }
 
-        $apiKey = config('services.google_maps.key');
-        if (empty($apiKey)) {
-            return response()->json(['result' => false, 'message' => 'Maps not configured'], 503);
+        $preResolvedName = $request->input('name');
+        $preResolvedAddress = $request->input('formatted_address');
+        $preResolvedLat = $request->input('lat');
+        $preResolvedLng = $request->input('lng');
+        $hasPreResolvedData = $preResolvedName !== null
+            && $preResolvedAddress !== null
+            && $preResolvedLat !== null
+            && $preResolvedLng !== null;
+
+        if ($hasPreResolvedData) {
+            $result = [
+                'name' => $preResolvedName,
+                'formatted_address' => $preResolvedAddress,
+                'geometry' => ['location' => ['lat' => $preResolvedLat, 'lng' => $preResolvedLng]],
+            ];
+        } else {
+            $apiKey = config('services.google_maps.key');
+            if (empty($apiKey)) {
+                return response()->json(['result' => false, 'message' => 'Maps not configured'], 503);
+            }
+
+            try {
+                // Without a language, Google defaults the returned
+                // formatted_address to whatever it deems appropriate for the
+                // region (often English) — while the school's `name` comes
+                // from the driver's own Arabic-language autocomplete search
+                // result. Left mismatched, a school ends up with an Arabic
+                // name but an English address, which reads as broken/random
+                // to an Arabic-locale user despite each half being "correct".
+                // Restricted to Basic Data fields only — a School row only
+                // ever stores name/area/lat/lng. Leaving `fields` unset
+                // makes Google return (and bill) the full default set,
+                // which spans the pricier Contact + Atmosphere Data SKUs
+                // for data never read here.
+                $response = Http::timeout(8)->get('https://maps.googleapis.com/maps/api/place/details/json', [
+                    'placeid' => $placeId,
+                    'language' => $request->input('language', 'en'),
+                    'fields' => 'place_id,name,formatted_address,geometry',
+                    'key' => $apiKey,
+                ]);
+
+                $body = $response->json();
+                $result = $body['result'] ?? null;
+
+                if (($body['status'] ?? null) !== 'OK' || !$result) {
+                    Log::warning('SchoolController::resolveFromPlace: no result from Google', [
+                        'status' => $body['status'] ?? null,
+                        'place_id' => $placeId,
+                    ]);
+                    return response()->json(['result' => false, 'message' => 'Could not find this school'], 422);
+                }
+            } catch (\Throwable $e) {
+                Log::warning('SchoolController::resolveFromPlace failed', ['error' => $e->getMessage()]);
+                return response()->json(['result' => false, 'message' => 'Could not resolve this school'], 502);
+            }
         }
 
         try {
-            // Without a language, Google defaults the returned
-            // formatted_address to whatever it deems appropriate for the
-            // region (often English) — while the school's `name` comes
-            // from the driver's own Arabic-language autocomplete search
-            // result. Left mismatched, a school ends up with an Arabic
-            // name but an English address, which reads as broken/random
-            // to an Arabic-locale user despite each half being "correct".
-            $response = Http::timeout(8)->get('https://maps.googleapis.com/maps/api/place/details/json', [
-                'placeid' => $placeId,
-                'language' => $request->input('language', 'en'),
-                'key' => $apiKey,
-            ]);
-
-            $body = $response->json();
-            $result = $body['result'] ?? null;
-
-            if (($body['status'] ?? null) !== 'OK' || !$result) {
-                Log::warning('SchoolController::resolveFromPlace: no result from Google', [
-                    'status' => $body['status'] ?? null,
-                    'place_id' => $placeId,
-                ]);
-                return response()->json(['result' => false, 'message' => 'Could not find this school'], 422);
-            }
-
             $school = School::firstOrCreate(
                 ['place_id' => $placeId],
                 [

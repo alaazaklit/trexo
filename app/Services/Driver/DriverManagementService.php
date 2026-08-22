@@ -10,11 +10,12 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
+use TCG\Voyager\Models\Setting;
 
 class DriverManagementService
 {
-    public const APPROVAL_STATUSES = ['pending', 'approved', 'suspended', 'rejected'];
-    public const DOCUMENT_TYPES = ['license', 'id_card', 'vehicle_registration', 'insurance'];
+    public const APPROVAL_STATUSES = ['pending', 'approved', 'suspended', 'rejected', 'grace_period', 'documents_required'];
+    public const DOCUMENT_TYPES = ['license', 'id_card', 'vehicle_registration', 'insurance', 'selfie'];
 
     /**
      * @param array{search?: string, approval_status?: string, school_bus_status?: string, expiring_soon?: string, gender?: string} $filters
@@ -109,6 +110,35 @@ class DriverManagementService
     }
 
     /**
+     * Admin-configurable via Admin > Settings > Drivers (see
+     * 2026_08_19_000002_seed_driver_grace_period_settings.php) — defaults to
+     * on/7 days if the setting rows are ever missing entirely (a fresh
+     * environment that hasn't run seeders yet), never to off/0.
+     */
+    public function graceEnabled(): bool
+    {
+        $value = Setting::where('key', 'driver.grace_period_enabled')->value('value');
+
+        return $value === null || $value === '1';
+    }
+
+    public function graceDays(): int
+    {
+        $value = (int) Setting::where('key', 'driver.grace_period_days')->value('value');
+
+        return $value > 0 ? $value : Driver::GRACE_PERIOD_DAYS;
+    }
+
+    /**
+     * New drivers start in a grace period rather than locked at 'pending' —
+     * they can go online/accept orders immediately on phone verification
+     * alone, but drivers:enforce-grace-period will flip them to
+     * 'documents_required' once grace_period_ends_at passes without all 3
+     * required documents uploaded. Turning the admin toggle off reverts new
+     * drivers to the original 'pending' behavior (locked until an admin
+     * manually approves them) — it never affects a grace period already
+     * granted to an existing driver.
+     *
      * @throws \InvalidArgumentException if this user already has a driver record.
      */
     public function createDriver(User $user, array $data): Driver
@@ -117,10 +147,11 @@ class DriverManagementService
             throw new \InvalidArgumentException('This user already has a driver record.');
         }
 
-        return Driver::create(array_merge($data, [
-            'user_id' => $user->id,
-            'approval_status' => 'pending',
-        ]));
+        $graceFields = $this->graceEnabled()
+            ? ['approval_status' => 'grace_period', 'grace_period_ends_at' => now()->addDays($this->graceDays())]
+            : ['approval_status' => 'pending', 'grace_period_ends_at' => null];
+
+        return Driver::create(array_merge($data, ['user_id' => $user->id], $graceFields));
     }
 
     public function updateApprovalStatus(Driver $driver, string $status): void

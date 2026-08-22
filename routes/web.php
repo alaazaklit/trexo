@@ -13,6 +13,7 @@ use App\Http\Controllers\Admin\DriverPricingController;
 use App\Http\Controllers\Admin\DriverSimulatorController;
 use App\Http\Controllers\Admin\DriverSubscriptionController;
 use App\Http\Controllers\Admin\FinancialReportController;
+use App\Http\Controllers\Admin\MapsConfigController;
 use App\Http\Controllers\Admin\OrderOpsController;
 use App\Http\Controllers\Admin\RequestReportController;
 use App\Http\Controllers\Admin\SchoolBusPremiumSubscriptionController;
@@ -216,6 +217,14 @@ Route::group(['prefix' => 'admin'], function () {
         Route::post('/commission-payments/{commissionPayment}/approve', [CommissionPaymentController::class, 'approve'])->name('admin.commission-payments.approve');
         Route::post('/commission-payments/{commissionPayment}/reject', [CommissionPaymentController::class, 'reject'])->name('admin.commission-payments.reject');
         Route::post('/commission-payments/{commissionPayment}/notify', [CommissionPaymentController::class, 'notify'])->name('admin.commission-payments.notify');
+    });
+
+    Route::middleware(['web', 'auth', 'permission:maps.view'])->group(function () {
+        Route::get('/maps-config', [MapsConfigController::class, 'show'])->name('admin.maps-config.show');
+    });
+
+    Route::middleware(['web', 'auth', 'permission:maps.manage'])->group(function () {
+        Route::post('/maps-config', [MapsConfigController::class, 'update'])->name('admin.maps-config.update');
     });
 
     Route::middleware(['web', 'auth', 'permission:broadcasts.view'])->group(function () {

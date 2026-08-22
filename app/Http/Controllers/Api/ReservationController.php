@@ -385,6 +385,14 @@ class ReservationController extends Controller
         // posted on completion) rather than recomputed later against
         // possibly-changed driver settings.
         $price = $request->input('price');
+        // Same trust-the-client-echo convention as $price above, for the
+        // breakdown that produced it — see OrderController::ChooseDriver.
+        $base_fare = $request->input('base_fare');
+        $per_km_rate = $request->input('per_km_rate');
+        $effective_per_km_rate = $request->input('effective_per_km_rate');
+        $out_of_zone_percent = $request->input('out_of_zone_percent');
+        $is_out_of_zone = $request->input('is_out_of_zone');
+        $pricing_zone_id = $request->input('pricing_zone_id');
 
         $reservation = Reservation::where('id', $reservationId)
             ->where('seller_id', $user->id)
@@ -401,6 +409,24 @@ class ReservationController extends Controller
         $reservation->status = 'pending';
         if (is_numeric($price)) {
             $reservation->price = round((float) $price, 2);
+        }
+        if (is_numeric($base_fare)) {
+            $reservation->base_fare = round((float) $base_fare, 2);
+        }
+        if (is_numeric($per_km_rate)) {
+            $reservation->per_km_rate = round((float) $per_km_rate, 2);
+        }
+        if (is_numeric($effective_per_km_rate)) {
+            $reservation->effective_per_km_rate = round((float) $effective_per_km_rate, 2);
+        }
+        if (is_numeric($out_of_zone_percent)) {
+            $reservation->out_of_zone_percent = round((float) $out_of_zone_percent, 2);
+        }
+        if ($is_out_of_zone !== null) {
+            $reservation->is_out_of_zone = filter_var($is_out_of_zone, FILTER_VALIDATE_BOOLEAN);
+        }
+        if (is_numeric($pricing_zone_id)) {
+            $reservation->pricing_zone_id = (int) $pricing_zone_id;
         }
         // Clear any acceptance left over from a previous driver — the app
         // shows chat/call to the seller based on this timestamp being set,

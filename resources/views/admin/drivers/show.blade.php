@@ -36,6 +36,35 @@
                 </div>
 
                 <div class="panel panel-bordered">
+                    <div class="panel-heading"><h3>Document Verification Grace Period</h3></div>
+                    <div class="panel-body">
+                        @if ($driver->approval_status === 'documents_required')
+                            <p><span class="label label-danger">Locked</span> Grace period expired without all required documents — driver can't go online or accept orders until they're all uploaded.</p>
+                        @elseif ($driver->approval_status === 'grace_period')
+                            @if ($driver->grace_period_ends_at)
+                                <p>Grace period ends: <strong>{{ $driver->grace_period_ends_at->format('Y-m-d H:i') }}</strong> ({{ $driver->isGracePeriodExpired() ? 'expired' : $driver->graceDaysRemaining().' day(s) left' }})</p>
+                            @else
+                                <p class="text-muted">No grace period deadline set.</p>
+                            @endif
+                        @else
+                            <p class="text-muted">Not applicable — driver isn't in a grace period.</p>
+                        @endif
+                        <table class="table table-condensed">
+                            <tbody>
+                                @foreach ($requiredVerificationDocuments as $type)
+                                    @php($uploaded = $driver->documents->contains('document_type', $type))
+                                    <tr>
+                                        <td>{{ ucfirst(str_replace('_', ' ', $type)) }}</td>
+                                        <td><span class="label label-{{ $uploaded ? 'success' : 'default' }}">{{ $uploaded ? 'Uploaded' : 'Missing' }}</span></td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                        <p class="text-muted">Managed globally under <a href="{{ route('voyager.settings.index') }}">Settings &rarr; Drivers</a> (enable/disable, and grace period length).</p>
+                    </div>
+                </div>
+
+                <div class="panel panel-bordered">
                     <div class="panel-heading"><h3>Gender</h3></div>
                     <div class="panel-body">
                         <p class="text-muted">Sellers can filter/see this driver as a female driver when set.</p>

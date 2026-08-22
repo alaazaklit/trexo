@@ -80,6 +80,9 @@ return [
             'wait' => 'Please wait :seconds seconds before requesting another code.',
             'invalid_otp' => 'That code is incorrect or has expired.',
             'send_failed' => 'Could not send the verification code via WhatsApp. Please try again later.',
+            'too_many' => 'You\'ve requested too many verification codes. Please try again later.',
+            'too_many_today' => 'Too many verification attempts today. Please try again later.',
+            'busy' => 'The service is busy right now, please try again shortly.',
         ],
     ],
 

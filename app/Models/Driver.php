@@ -17,6 +17,15 @@ class Driver extends Model
     // separate column rather than reusing approval_status.
     public const SCHOOL_BUS_STATUSES = ['pending', 'approved', 'suspended', 'rejected'];
 
+    // How long a newly registered driver may go online/accept orders before
+    // uploading verification documents.
+    public const GRACE_PERIOD_DAYS = 7;
+
+    // The 3 documents a driver must have all uploaded (any review status —
+    // this only gates the grace-period lock, not admin approval) before the
+    // grace-period lock is lifted.
+    public const REQUIRED_VERIFICATION_DOCUMENTS = ['id_card', 'license', 'selfie'];
+
     protected $fillable = [
         'user_id',
         'license_number',
@@ -28,12 +37,14 @@ class Driver extends Model
         'price_per_km_override',
         'detour_surcharge_override',
         'reservation_multiplier_override',
+        'out_of_zone_percent_override',
         'offers_taxi',
         'offers_delivery',
         'pricing_zone_id',
         'is_online',
         'status',
         'approval_status',
+        'grace_period_ends_at',
         'school_bus_status',
         'school_bus_child_discount_percent',
         'vehicle_type',
@@ -76,6 +87,7 @@ class Driver extends Model
         'offers_delivery' => 'boolean',
         'school_bus_child_discount_percent' => 'decimal:2',
         'is_online' => 'boolean',
+        'grace_period_ends_at' => 'datetime',
         'vehicle_year' => 'integer',
         'speed_kmh' => 'decimal:2',
         'latitude' => 'decimal:7',
@@ -113,6 +125,80 @@ class Driver extends Model
     public function documents(): HasMany
     {
         return $this->hasMany(DriverDocument::class);
+    }
+
+    // Existence only (any review status) — this gates the grace-period
+    // lock, which only cares that all 3 are submitted, not whether an admin
+    // has approved them yet.
+    public function hasAllRequiredDocuments(): bool
+    {
+        $uploadedTypes = $this->documents()
+            ->whereIn('document_type', self::REQUIRED_VERIFICATION_DOCUMENTS)
+            ->distinct()
+            ->pluck('document_type');
+
+        return count(array_intersect(self::REQUIRED_VERIFICATION_DOCUMENTS, $uploadedTypes->all())) === count(self::REQUIRED_VERIFICATION_DOCUMENTS);
+    }
+
+    public function isGracePeriodExpired(): bool
+    {
+        return $this->grace_period_ends_at !== null && now()->greaterThanOrEqualTo($this->grace_period_ends_at);
+    }
+
+    // Locked out of going online / accepting orders: either an admin has
+    // explicitly flagged the account as needing documents, or the grace
+    // period ran out before all 3 were submitted. Being in an *unexpired*
+    // grace_period, or already 'approved', is never locked.
+    public function isVerificationLocked(): bool
+    {
+        if ($this->approval_status === 'documents_required') {
+            return true;
+        }
+
+        return $this->approval_status === 'grace_period'
+            && $this->isGracePeriodExpired()
+            && !$this->hasAllRequiredDocuments();
+    }
+
+    // Whole days left in the grace period, rounded up (e.g. 6.1 days left
+    // still reads as "1 day left" until it's genuinely reached 0), floored
+    // at 0 once expired or when there's no grace period set at all.
+    public function graceDaysRemaining(): int
+    {
+        if ($this->grace_period_ends_at === null) {
+            return 0;
+        }
+
+        $hoursLeft = now()->diffInHours($this->grace_period_ends_at, false);
+
+        return $hoursLeft <= 0 ? 0 : (int) ceil($hoursLeft / 24);
+    }
+
+    /**
+     * The single computed block the mobile app needs to render the grace
+     * period banner / decide whether to show the document-lock screen —
+     * kept in one place so every API response that carries driver data
+     * (login, refresh, validateToken, the dedicated verification-status
+     * endpoint) stays in sync automatically.
+     */
+    public function verificationStatus(): array
+    {
+        $uploadedTypes = $this->documents()
+            ->whereIn('document_type', self::REQUIRED_VERIFICATION_DOCUMENTS)
+            ->distinct()
+            ->pluck('document_type')
+            ->all();
+
+        return [
+            'approval_status' => $this->approval_status,
+            'grace_period_ends_at' => $this->grace_period_ends_at?->toIso8601String(),
+            'grace_days_remaining' => $this->graceDaysRemaining(),
+            'documents_uploaded' => array_merge(
+                array_fill_keys(self::REQUIRED_VERIFICATION_DOCUMENTS, false),
+                array_fill_keys($uploadedTypes, true)
+            ),
+            'is_locked' => $this->isVerificationLocked(),
+        ];
     }
 
     public function subscriptions(): HasMany

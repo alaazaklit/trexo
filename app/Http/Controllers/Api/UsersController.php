@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use App\Models\User;
 use App\VerificationCode;
 use App\Services\UnlimitedMessagingService;
+use App\Services\OtpService;
 use App\Services\Auth\RefreshTokenService;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Auth;
@@ -22,11 +23,13 @@ use Illuminate\Support\Str;
 class UsersController extends Controller
 {
     private UnlimitedMessagingService $whatsAppService;
+    private OtpService $otpService;
     private RefreshTokenService $refreshTokenService;
 
-    public function __construct(UnlimitedMessagingService $whatsAppService, RefreshTokenService $refreshTokenService)
+    public function __construct(UnlimitedMessagingService $whatsAppService, OtpService $otpService, RefreshTokenService $refreshTokenService)
     {
         $this->whatsAppService = $whatsAppService;
+        $this->otpService = $otpService;
         $this->refreshTokenService = $refreshTokenService;
     }
 
@@ -80,21 +83,26 @@ class UsersController extends Controller
 
         if ($avatarPath === '') {
             $data['avatar_url'] = '';
-            return $data;
-        }
-
-        if (str_starts_with($avatarPath, 'http://') || str_starts_with($avatarPath, 'https://')) {
+        } elseif (str_starts_with($avatarPath, 'http://') || str_starts_with($avatarPath, 'https://')) {
             $data['avatar_url'] = $avatarPath;
-            return $data;
+        } else {
+            // Storage::disk('public')->url() builds from APP_URL (config/filesystems.php),
+            // which already accounts for the app living in a subdirectory
+            // (https://ramin7.sg-host.com/trexo/public) on the live host. Building
+            // this from just the incoming request's scheme+host instead silently
+            // dropped that subdirectory, producing an avatar_url that 404'd even
+            // though the file was saved correctly.
+            $data['avatar_url'] = Storage::disk('public')->url($avatarPath);
         }
 
-        // Storage::disk('public')->url() builds from APP_URL (config/filesystems.php),
-        // which already accounts for the app living in a subdirectory
-        // (https://ramin7.sg-host.com/trexo/public) on the live host. Building
-        // this from just the incoming request's scheme+host instead silently
-        // dropped that subdirectory, producing an avatar_url that 404'd even
-        // though the file was saved correctly.
-        $data['avatar_url'] = Storage::disk('public')->url($avatarPath);
+        // Carries the grace-period banner/lock state to every response that
+        // returns a user (login, refresh, validateToken) so the app never
+        // has to make a separate call just to know whether to show it.
+        if ($user->type === 'driver') {
+            $driver = \App\Models\Driver::where('user_id', $user->id)->first();
+            $data['driver_verification'] = $driver?->verificationStatus();
+        }
+
         return $data;
     }
 
@@ -173,43 +181,28 @@ class UsersController extends Controller
             $user->save();
         }
 
-        $recentCode = VerificationCode::where('user_id', $user->id)
-            ->where('used', false)
-            ->orderByDesc('id')
-            ->first();
+        // The code sits alone on its own line (not inline with surrounding
+        // text) so a long-press-to-copy on the WhatsApp message grabs just
+        // the digits — mixed into a sentence, that gesture over-selects
+        // into the neighboring words instead.
+        $outcome = $this->otpService->requestOtp($user, $phone, 'whatsapp_otp', $request, function (string $code) {
+            return "Your Trexo verification code is:\n\n{$code}\n\nDon't share this code with anyone.";
+        });
 
-        if ($recentCode && $recentCode->created_at && $recentCode->created_at->gt(Carbon::now()->subSeconds(60))) {
-            $waitSeconds = max(1, 60 - Carbon::now()->diffInSeconds($recentCode->created_at));
+        if ($outcome['http_status'] !== 200) {
             return response()->json([
                 'result' => false,
-                'message' => "يرجى الانتظار {$waitSeconds} ثانية قبل إعادة الإرسال",
-            ], 429);
-        }
-
-        $verificationCode = VerificationCode::create([
-            'user_id' => $user->id,
-            'code' => str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT),
-            'expires_at' => Carbon::now()->addMinutes(10),
-            'type' => 'whatsapp_otp',
-            'used' => 0,
-        ]);
-
-        $sent = $this->whatsAppService->sendWhatsAppMessage($phone, "Your Trexo verification code is: {$verificationCode->code}");
-
-        if (!$sent && !config('app.debug')) {
-            return response()->json([
-                'result' => false,
-                'message' => 'تعذر إرسال رمز التحقق عبر واتساب، يرجى المحاولة لاحقاً',
-            ], 502);
+                'message' => $outcome['message'],
+            ], $outcome['http_status']);
         }
 
         $response = [
             'result' => true,
-            'message' => 'تم إرسال رمز التحقق عبر واتساب',
+            'message' => $outcome['message'],
         ];
 
         if (config('app.debug')) {
-            $response['debug_otp'] = $verificationCode->code;
+            $response['debug_otp'] = $outcome['code']->code;
         }
 
         return response()->json($response, 200);
@@ -364,13 +357,24 @@ public function updateAvailability(Request $request)
     $goingOnline = $request->boolean('is_available');
 
     if ($goingOnline) {
-        $driverApprovalStatus = DB::table('drivers')->where('user_id', $user->id)->value('approval_status');
+        $driverRow = DB::table('drivers')->where('user_id', $user->id)->first();
 
-        if ($driverApprovalStatus !== null && $driverApprovalStatus !== 'approved') {
-            return response()->json([
-                'result' => false,
-                'message' => 'حسابك كسائق قيد المراجعة أو موقوف، لا يمكنك الاتصال بالإنترنت الآن',
-            ], 403);
+        if ($driverRow !== null && $driverRow->approval_status !== null && $driverRow->approval_status !== 'approved') {
+            // A driver still inside their 7-day document-upload grace period
+            // may go online same as an approved one — only an expired grace
+            // period (documents_required) or an explicit
+            // pending/suspended/rejected status blocks this.
+            $isWithinGracePeriod = $driverRow->approval_status === 'grace_period'
+                && $driverRow->grace_period_ends_at !== null
+                && Carbon::parse($driverRow->grace_period_ends_at)->isFuture();
+
+            if (!$isWithinGracePeriod) {
+                return response()->json([
+                    'result' => false,
+                    'message' => 'حسابك كسائق قيد المراجعة أو موقوف، لا يمكنك الاتصال بالإنترنت الآن',
+                    'driver_status' => $driverRow->approval_status,
+                ], 403);
+            }
         }
     }
 
@@ -670,6 +674,7 @@ public function verifyOtp(Request $request)
 
     $user->is_verified = 1;
     $user->save();
+    $this->otpService->markVerified($user);
 
     $tokens = $this->issueTokenPair($user);
 
@@ -708,23 +713,28 @@ public function forgotPassword(Request $request)
         ], 404);
     }
 
-    $verificationCode = VerificationCode::create([
-        'user_id' => $user->id,
-        'code' => rand(100000, 999999),
-        'expires_at' => Carbon::now()->addMinutes(10),
-        'type' => 'password_reset',
-        'used' => 0,
-    ]);
+    $normalizedPhone = $this->normalizePhoneNumber($request->input('phone'));
+
+    $outcome = $this->otpService->requestOtp($user, $normalizedPhone, 'password_reset', $request, function (string $code) {
+        return "Your Trexo password reset code is:\n\n{$code}\n\nDon't share this code with anyone.";
+    });
+
+    if ($outcome['http_status'] !== 200) {
+        return response()->json([
+            'result' => false,
+            'error' => $outcome['message'],
+        ], $outcome['http_status']);
+    }
 
     $response = [
         'result' => true,
-        'message' => 'تم إرسال رمز التحقق',
+        'message' => $outcome['message'],
         'user_id' => $user->id,
         'phone' => $user->phone,
     ];
 
     if (config('app.debug')) {
-        $response['debug_otp'] = $verificationCode->code;
+        $response['debug_otp'] = $outcome['code']->code;
     }
 
     return response()->json($response, 200);
@@ -780,6 +790,7 @@ public function resetPassword(Request $request)
 
     $user->password = Hash::make($request->input('password'));
     $user->save();
+    $this->otpService->markVerified($user);
 
     // A password reset is a signal the account may have been compromised
     // (or the old password simply forgotten) — either way, every device

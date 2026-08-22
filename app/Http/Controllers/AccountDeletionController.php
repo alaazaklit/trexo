@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Services\Auth\RefreshTokenService;
 use App\VerificationCode;
 use App\Services\UnlimitedMessagingService;
+use App\Services\OtpService;
 use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -23,6 +24,7 @@ class AccountDeletionController extends Controller
 {
     public function __construct(
         private readonly UnlimitedMessagingService $whatsAppService,
+        private readonly OtpService $otpService,
         private readonly RefreshTokenService $refreshTokenService,
     ) {
     }
@@ -42,35 +44,22 @@ class AccountDeletionController extends Controller
             return back()->withInput()->withErrors(['phone' => __('pages.delete_account.errors.not_found')]);
         }
 
-        $recentCode = VerificationCode::where('user_id', $user->id)
-            ->where('type', 'account_deletion')
-            ->where('used', false)
-            ->orderByDesc('id')
-            ->first();
+        $normalizedPhone = User::normalizePhone($request->input('phone'));
 
-        if ($recentCode && $recentCode->created_at && $recentCode->created_at->gt(Carbon::now()->subSeconds(60))) {
-            $waitSeconds = max(1, 60 - Carbon::now()->diffInSeconds($recentCode->created_at));
+        $outcome = $this->otpService->requestOtp($user, $normalizedPhone, 'account_deletion', $request, function (string $code) {
+            return "Your Trexo verification code is: {$code}";
+        });
 
-            return back()->withInput()->with('otp_sent_phone', $request->input('phone'))->withErrors([
-                'otp' => __('pages.delete_account.errors.wait', ['seconds' => $waitSeconds]),
-            ]);
-        }
+        if ($outcome['http_status'] !== 200) {
+            $errorKey = match ($outcome['reason']) {
+                OtpService::REASON_COOLDOWN => __('pages.delete_account.errors.wait', ['seconds' => $outcome['wait_seconds'] ?? 60]),
+                OtpService::REASON_LIMIT_DAILY => __('pages.delete_account.errors.too_many_today'),
+                OtpService::REASON_GLOBAL_BUSY => __('pages.delete_account.errors.busy'),
+                OtpService::REASON_SEND_FAILED => __('pages.delete_account.errors.send_failed'),
+                default => __('pages.delete_account.errors.too_many'),
+            };
 
-        $code = VerificationCode::create([
-            'user_id' => $user->id,
-            'code' => str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT),
-            'expires_at' => Carbon::now()->addMinutes(10),
-            'type' => 'account_deletion',
-            'used' => 0,
-        ]);
-
-        $sent = $this->whatsAppService->sendWhatsAppMessage(
-            $request->input('phone'),
-            "Your Trexo verification code is: {$code->code}"
-        );
-
-        if (!$sent && !config('app.debug')) {
-            return back()->withInput()->withErrors(['otp' => __('pages.delete_account.errors.send_failed')]);
+            return back()->withInput()->with('otp_sent_phone', $request->input('phone'))->withErrors(['otp' => $errorKey]);
         }
 
         return back()

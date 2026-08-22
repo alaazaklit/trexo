@@ -64,6 +64,20 @@ class FareCalculator
     }
 
     /**
+     * A driver's normal per-km rate, increased by their own out-of-zone
+     * percentage when a trip's destination falls outside their chosen
+     * working zone (see MatchesDriverSchedules::findMatchingDrivers — the
+     * decision of *whether* a trip counts as out-of-zone depends on DB zone
+     * lookups and stays there; this is just the pure multiplication once
+     * that's already been decided, kept separate so it's unit-testable
+     * without booting the app).
+     */
+    public static function applyOutOfZonePercent(float $normalPricePerKm, float $outOfZonePercent): float
+    {
+        return $normalPricePerKm * (1 + $outOfZonePercent / 100);
+    }
+
+    /**
      * Rounds a whole-LBP amount to the nearest 20,000 LBP note. LBP has no
      * fractional unit in practice, so this works in integers throughout
      * rather than float — money should never be a float.
