@@ -166,6 +166,47 @@ class MapProxyPlacesProviderTest extends TestCase
         Http::assertNotSent(fn ($request) => str_contains($request->url(), 'googleapis.com'));
     }
 
+    public function test_forced_mapbox_provider_never_falls_back_to_google(): void
+    {
+        // The driver Check Price screen sends provider=mapbox explicitly —
+        // unlike the Setting-driven dispatch the other tests above cover,
+        // a forced provider must never fall back to the other one on
+        // failure, since Check Price is required to generate zero Google
+        // requests even during a Mapbox outage.
+        config(['services.mapbox.token' => 'test-token', 'services.google_maps.key' => 'test-google-key']);
+        $this->setPlacesProvider('google');
+
+        Http::fake([
+            'api.mapbox.com/*' => Http::response(['message' => 'invalid token'], 401),
+            'maps.googleapis.com/*' => Http::response(['status' => 'OK', 'predictions' => [
+                ['description' => 'Should never be returned', 'place_id' => 'google-id'],
+            ]], 200),
+        ]);
+
+        $response = $this->withHeaders($this->authHeaders())
+            ->getJson('/api/maps/place-autocomplete?input=Main+Street&provider=mapbox');
+
+        $response->assertStatus(502)->assertJson(['status' => 'UNKNOWN_ERROR']);
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), 'googleapis.com'));
+    }
+
+    public function test_forced_google_provider_never_falls_back_to_mapbox(): void
+    {
+        config(['services.mapbox.token' => 'test-token', 'services.google_maps.key' => 'test-google-key']);
+        $this->setPlacesProvider('mapbox');
+
+        Http::fake([
+            'maps.googleapis.com/*' => Http::response(['status' => 'REQUEST_DENIED'], 200),
+            'api.mapbox.com/*' => Http::response(['features' => [$this->fakeMapboxFeature()]], 200),
+        ]);
+
+        $response = $this->withHeaders($this->authHeaders())
+            ->getJson('/api/maps/place-autocomplete?input=Main+Street&provider=google');
+
+        $response->assertStatus(502);
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), 'mapbox.com'));
+    }
+
     public function test_admin_maps_config_now_accepts_mapbox_for_places_provider(): void
     {
         $this->setPlacesProvider('google');

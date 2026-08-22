@@ -8,6 +8,7 @@ use App\Models\DriverGalleryImage;
 use App\Models\School;
 use App\Models\SchoolBusRoute;
 use App\Models\SchoolBusSubscription;
+use App\Services\MapboxService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -150,9 +151,12 @@ class SchoolController extends Controller
     // it on first use. `place_id` is the dedup key — a school already
     // resolved by any driver is reused rather than duplicated. Reuses the
     // same GOOGLE_MAPS_KEY / server-side-only pattern as MapProxyController,
-    // but (unlike that controller's placeDetails) parses Google's response
-    // here since the result needs to become a School row, not just be
-    // forwarded to the client.
+    // but (unlike that controller's placeDetails) parses the provider's
+    // response here since the result needs to become a School row, not just
+    // be forwarded to the client. Same 'mapbox:'-prefix detection as
+    // MapProxyController::placeDetails() for the same reason: a place_id
+    // belongs to whichever provider issued it at autocomplete time,
+    // independent of whatever maps.places_provider is configured now.
     public function resolveFromPlace(Request $request)
     {
         JWTAuth::parseToken()->authenticate();
@@ -204,6 +208,14 @@ class SchoolController extends Controller
                 'formatted_address' => $preResolvedAddress,
                 'geometry' => ['location' => ['lat' => $preResolvedLat, 'lng' => $preResolvedLng]],
             ];
+        } elseif (str_starts_with($placeId, 'mapbox:')) {
+            $normalized = (new MapboxService())->retrievePlace($placeId);
+            $result = $normalized['result'] ?? null;
+
+            if ($result === null) {
+                Log::warning('SchoolController::resolveFromPlace: no result from Mapbox', ['place_id' => $placeId]);
+                return response()->json(['result' => false, 'message' => 'Could not find this school'], 422);
+            }
         } else {
             $apiKey = config('services.google_maps.key');
             if (empty($apiKey)) {

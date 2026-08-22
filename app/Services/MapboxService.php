@@ -284,6 +284,58 @@ class MapboxService
     }
 
     /**
+     * Driving distance/duration between two points via Mapbox's Directions
+     * API — used by DriverProfileController::testPrice() (the driver-facing
+     * Check Price screen), which must never call Google's Routes API the
+     * way real order/reservation pricing does (see
+     * MatchesDriverSchedules::resolveTripDistanceKm()/drivingDurationMinutes()).
+     * Returns null on any failure so the caller can fall back to a
+     * straight-line estimate instead — deliberately no cross-provider
+     * fallback to Google here, unlike the rest of this class's methods,
+     * because Check Price is required to generate zero Google requests even
+     * when Mapbox itself is unavailable.
+     */
+    public function directions(float $originLat, float $originLng, float $destLat, float $destLng, string $mode = 'driving'): ?array
+    {
+        $token = $this->token();
+        if (empty($token)) {
+            return null;
+        }
+
+        $coordinates = "{$originLng},{$originLat};{$destLng},{$destLat}";
+
+        try {
+            $response = Http::timeout(5)->get(
+                "https://api.mapbox.com/directions/v5/mapbox/{$mode}/{$coordinates}",
+                [
+                    // No geometry needed — testPrice only reads
+                    // distance/duration, never route points.
+                    'overview' => 'false',
+                    'access_token' => $token,
+                ]
+            );
+        } catch (\Throwable $e) {
+            return null;
+        }
+
+        if (!$response->successful()) {
+            return null;
+        }
+
+        $body = $response->json();
+        $route = $body['routes'][0] ?? null;
+
+        if (($body['code'] ?? null) !== 'Ok' || $route === null) {
+            return null;
+        }
+
+        return [
+            'distance_meters' => (int) round($route['distance'] ?? 0),
+            'duration_seconds' => (int) round($route['duration'] ?? 0),
+        ];
+    }
+
+    /**
      * Caches one raw feature under its own place_id (30 days, same
      * reasoning as the class-level cache TTL) so retrievePlace() — or a
      * feature encountered again via a different endpoint — can resolve it

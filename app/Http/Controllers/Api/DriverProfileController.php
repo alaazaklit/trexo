@@ -11,6 +11,7 @@ use App\Models\DriverServiceLine;
 use App\Models\IntercityRoute;
 use App\Models\PricingZone;
 use App\Models\User;
+use App\Services\MapboxService;
 use App\Services\Pricing\FareCalculator;
 use App\Traits\MatchesDriverSchedules;
 use Illuminate\Http\Request;
@@ -315,8 +316,16 @@ class DriverProfileController extends Controller
         ];
 
         $straightLineKm = $this->haversineDistance($pickup['lat'], $pickup['lng'], $destination['lat'], $destination['lng']);
-        $distanceKm = $this->resolveTripDistanceKm($pickup, $destination, $straightLineKm);
-        $durationMinutes = $this->drivingDurationMinutes($pickup['lat'], $pickup['lng'], $destination['lat'], $destination['lng']);
+        // Deliberately NOT resolveTripDistanceKm()/drivingDurationMinutes()
+        // (Google's Routes API, unconditionally — see MatchesDriverSchedules)
+        // — Check Price must generate zero Google requests, so this route
+        // goes through Mapbox Directions instead, with a straight-line/null
+        // fallback (no cross-provider fallback to Google) if Mapbox fails.
+        $mapboxRoute = empty(config('services.mapbox.token'))
+            ? null
+            : (new MapboxService())->directions($pickup['lat'], $pickup['lng'], $destination['lat'], $destination['lng']);
+        $distanceKm = $mapboxRoute !== null ? round($mapboxRoute['distance_meters'] / 1000, 3) : $straightLineKm;
+        $durationMinutes = $mapboxRoute !== null ? (int) round($mapboxRoute['duration_seconds'] / 60) : null;
 
         $driver = Driver::where('user_id', $user->id)->first();
 

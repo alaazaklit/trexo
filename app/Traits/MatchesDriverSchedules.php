@@ -5,6 +5,7 @@ namespace App\Traits;
 use App\Models\DriverIntercityRouteOverride;
 use App\Models\IntercityRoute;
 use App\Models\PricingZone;
+use App\Services\MapboxService;
 use App\Services\Pricing\FareCalculator;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -752,68 +753,70 @@ trait MatchesDriverSchedules
     }
 
     /**
-     * City/administrative-region text for a coordinate, via Google's
-     * Geocoding API — the same signal a real order/reservation already
-     * carries (Order::start_city/start_region etc., geocoded client-side
-     * when the address was picked and stored on the `addresses` table).
-     * Needed only by DriverProfileController::testPrice(), which receives
-     * raw coordinates with no such stored text, so it can zone-match/
-     * intercity-match a pickup/destination pair the exact same way
-     * findMatchingDrivers() does. Cached briefly per ~11m coordinate
-     * bucket, same reasoning/precision as MapProxyController::reverseGeocode.
+     * City/administrative-region text for a coordinate — used only by
+     * DriverProfileController::testPrice() (the driver-facing Check Price
+     * screen), which receives raw coordinates with no stored address text
+     * of its own, so it can zone-match/intercity-match a pickup/destination
+     * pair the exact same way findMatchingDrivers() does for a real order
+     * (which instead reads city/region already geocoded client-side and
+     * stored on the `addresses` table — see Order::start_city/start_region).
+     * Cached briefly per ~11m coordinate bucket, same reasoning/precision as
+     * MapProxyController::reverseGeocode.
+     *
+     * Hardcoded to Mapbox only, with NO fallback to Google on failure —
+     * Check Price is architecturally required to generate zero Google Maps/
+     * Places requests, independent of whatever the admin-editable
+     * 'maps.places_provider' Setting says for the real customer flow (see
+     * MapProxyController). A Mapbox failure here just returns nulls, same as
+     * the old Google-only version's failure case.
      */
     protected function resolveCityRegion(float $lat, float $lng): array
     {
-        $apiKey = config('services.google_maps.key');
-        if (empty($apiKey)) {
-            return ['city' => null, 'region' => null];
-        }
-
         $cacheKey = 'test_price_geocode:' . md5(round($lat, 4) . ',' . round($lng, 4));
         $cached = Cache::get($cacheKey);
         if ($cached !== null) {
             return $cached;
         }
 
-        try {
-            $response = Http::timeout(5)->get('https://maps.googleapis.com/maps/api/geocode/json', [
-                'latlng' => "{$lat},{$lng}",
-                'key' => $apiKey,
-            ]);
-
-            if (!$response->successful() || $response->json('status') !== 'OK') {
-                return ['city' => null, 'region' => null];
-            }
-
-            $city = null;
-            $region = null;
-            // Google fragments address components across several result
-            // entries for the same point — scan all of them, not just the
-            // first, same reasoning as address.dart's _findFirstAcrossResults.
-            foreach ($response->json('results', []) as $result) {
-                foreach ($result['address_components'] ?? [] as $component) {
-                    $types = $component['types'] ?? [];
-                    if ($city === null && in_array('locality', $types, true)) {
-                        $city = $component['long_name'] ?? null;
-                    }
-                    if ($region === null && in_array('administrative_area_level_1', $types, true)) {
-                        $region = $component['long_name'] ?? null;
-                    }
-                }
-                if ($city !== null && $region !== null) {
-                    break;
-                }
-            }
-
-            $resolved = ['city' => $city, 'region' => $region];
-            Cache::put($cacheKey, $resolved, now()->addMinutes(30));
-
-            return $resolved;
-        } catch (\Throwable $e) {
-            Log::warning('Reverse geocode for zone/intercity matching failed', ['error' => $e->getMessage()]);
-
+        if (empty(config('services.mapbox.token'))) {
             return ['city' => null, 'region' => null];
         }
+
+        try {
+            $normalized = (new MapboxService())->reverseGeocode($lat, $lng);
+        } catch (\Throwable $e) {
+            Log::warning('MatchesDriverSchedules::resolveCityRegion (mapbox) failed', ['error' => $e->getMessage()]);
+            return ['city' => null, 'region' => null];
+        }
+
+        if (($normalized['status'] ?? null) !== 'OK') {
+            return ['city' => null, 'region' => null];
+        }
+
+        $city = null;
+        $region = null;
+        // Mapbox fragments address components across several result entries
+        // for the same point — scan all of them, not just the first, same
+        // reasoning as address.dart's _findFirstAcrossResults.
+        foreach ($normalized['results'] ?? [] as $result) {
+            foreach ($result['address_components'] ?? [] as $component) {
+                $types = $component['types'] ?? [];
+                if ($city === null && in_array('locality', $types, true)) {
+                    $city = $component['long_name'] ?? null;
+                }
+                if ($region === null && in_array('administrative_area_level_1', $types, true)) {
+                    $region = $component['long_name'] ?? null;
+                }
+            }
+            if ($city !== null && $region !== null) {
+                break;
+            }
+        }
+
+        $resolved = ['city' => $city, 'region' => $region];
+        Cache::put($cacheKey, $resolved, now()->addMinutes(30));
+
+        return $resolved;
     }
 
     protected function getBaseFare(int $orderType, ?PricingZone $zone = null): float

@@ -626,6 +626,13 @@ class MapProxyController extends Controller
             // NOT part of the cache key below — it's a billing-correlation
             // value, not part of what makes two searches "the same search".
             'sessiontoken' => 'nullable|string|max:100',
+            // Lets one specific caller (currently: the driver's test-price
+            // screen) force Mapbox regardless of the global
+            // 'maps.places_provider' Setting, without moving every other
+            // screen that shares this same endpoint off Google too. Omitted
+            // (the normal case), this falls through to that Setting exactly
+            // like before.
+            'provider' => 'nullable|string|in:google,mapbox',
         ]);
 
         if ($validator->fails()) {
@@ -645,12 +652,20 @@ class MapProxyController extends Controller
         $biasRadius = $request->input('radius', 50000);
         $types = $request->input('types');
         $sessionToken = $request->input('sessiontoken');
+        $requestedProvider = $request->input('provider');
+        $isForcedProvider = in_array($requestedProvider, ['google', 'mapbox'], true);
 
-        $primary = $this->placesProvider();
-        $fallback = $primary === 'google' ? 'mapbox' : 'google';
+        $primary = $isForcedProvider ? $requestedProvider : $this->placesProvider();
+        // A forced provider (Check Price's 'mapbox') must never fall back to
+        // the other one on failure — that fallback exists to keep the real
+        // customer flow available during an outage, but Check Price is
+        // required to generate zero Google requests even during a Mapbox
+        // outage, so a forced request that fails surfaces as "no results"
+        // instead.
+        $fallback = $isForcedProvider ? null : ($primary === 'google' ? 'mapbox' : 'google');
 
         $response = $this->fetchPlaceAutocomplete($primary, $input, $language, $biasLat, $biasLng, $biasRadius, $types, $sessionToken);
-        if ($response === null) {
+        if ($response === null && $fallback !== null) {
             Log::warning("MapProxyController::placeAutocomplete: falling back from {$primary} to {$fallback}");
             $response = $this->fetchPlaceAutocomplete($fallback, $input, $language, $biasLat, $biasLng, $biasRadius, $types, $sessionToken);
         }
