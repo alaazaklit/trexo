@@ -9,6 +9,8 @@ class PricingZone extends Model
     protected $fillable = [
         'name',
         'keywords',
+        'hub_lat',
+        'hub_lng',
         'base_fare_taxi',
         'base_fare_delivery',
         'per_km_taxi',
@@ -18,6 +20,8 @@ class PricingZone extends Model
     ];
 
     protected $casts = [
+        'hub_lat' => 'decimal:7',
+        'hub_lng' => 'decimal:7',
         'base_fare_taxi' => 'decimal:2',
         'base_fare_delivery' => 'decimal:2',
         'per_km_taxi' => 'decimal:2',

@@ -3,6 +3,7 @@
 namespace App\Traits;
 
 use App\Models\DriverIntercityRouteOverride;
+use App\Models\DriverPriceBracket;
 use App\Models\IntercityRoute;
 use App\Models\PricingZone;
 use App\Services\MapboxService;
@@ -196,6 +197,18 @@ trait MatchesDriverSchedules
             )
             ->get();
 
+        // Batched once for every candidate driver (same pattern as
+        // $intercityOverridesByUserId above) rather than per-candidate in
+        // the loop below, to avoid an N+1 query. A driver who's never
+        // touched the bracket-pricing builder simply has no entry here —
+        // ->get() on a missing key below returns an empty collection, which
+        // FareCalculator::bracketPricePerKm() treats as "no brackets" and
+        // falls through to the flat override/zone-guardrail logic exactly
+        // as before this feature existed.
+        $bracketsByUserId = DriverPriceBracket::whereIn('user_id', $driverRows->pluck('driver_id'))
+            ->get()
+            ->groupBy('user_id');
+
         $drivers = [];
         foreach ($driverRows as $driverRow) {
             // A driver who has explicitly chosen a working zone (the
@@ -273,14 +286,29 @@ trait MatchesDriverSchedules
             $baseFare = $driverRow->base_fare_override !== null
                 ? (float) $driverRow->base_fare_override
                 : $this->getBaseFare($orderType, $zone);
-            $normalPricePerKm = $driverRow->price_per_km_override !== null
+
+            // A driver's own distance-tiered price list (if they've built
+            // one) fully replaces their flat per-km rate for real billing —
+            // see FareCalculator::bracketPricePerKm()'s docblock for the
+            // clamping behavior when this trip's distance falls outside
+            // every bracket they've defined.
+            $driverBrackets = $bracketsByUserId->get($driverRow->driver_id, collect())
+                ->map(fn (DriverPriceBracket $bracket) => [
+                    'lower_km' => (float) $bracket->lower_km,
+                    'upper_km' => (float) $bracket->upper_km,
+                    'price_per_km' => (float) $bracket->price_per_km,
+                ])
+                ->all();
+            $bracketRate = FareCalculator::bracketPricePerKm($driverBrackets, $passengerDistanceKm);
+
+            $normalPricePerKm = $bracketRate ?? ($driverRow->price_per_km_override !== null
                 ? (float) $driverRow->price_per_km_override
                 : FareCalculator::effectivePerKmRate(
                     $this->getNormalPricePerKm($orderType, $zone),
                     $this->getNormalPricePerKm($orderType, $destinationZone),
                     $this->getNormalPricePerKm($orderType, null),
                     $crossesZones
-                );
+                ));
 
             // Out-of-zone surcharge: a driver who's chosen a working zone and
             // whose destination doesn't resolve to ANY zone at all (a real,

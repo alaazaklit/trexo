@@ -7,6 +7,7 @@ use App\Models\Driver;
 use App\Models\DriverDocument;
 use App\Models\DriverGalleryImage;
 use App\Models\DriverIntercityRouteOverride;
+use App\Models\DriverPriceBracket;
 use App\Models\DriverServiceLine;
 use App\Models\IntercityRoute;
 use App\Models\PricingZone;
@@ -15,6 +16,7 @@ use App\Services\MapboxService;
 use App\Services\Pricing\FareCalculator;
 use App\Traits\MatchesDriverSchedules;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Tymon\JWTAuth\Facades\JWTAuth;
@@ -341,14 +343,31 @@ class DriverProfileController extends Controller
         $baseFare = $driver?->base_fare_override !== null
             ? (float) $driver->base_fare_override
             : $this->getBaseFare($orderType, $zone);
-        $normalPricePerKm = $driver?->price_per_km_override !== null
+
+        // Same bracket-first resolution findMatchingDrivers() applies, so
+        // this simulator never drifts out of sync with real billing — see
+        // FareCalculator::bracketPricePerKm()'s docblock for the clamping
+        // behavior when $distanceKm falls outside every bracket defined.
+        $driverBrackets = $driver === null
+            ? []
+            : DriverPriceBracket::where('user_id', $user->id)
+                ->get()
+                ->map(fn (DriverPriceBracket $bracket) => [
+                    'lower_km' => (float) $bracket->lower_km,
+                    'upper_km' => (float) $bracket->upper_km,
+                    'price_per_km' => (float) $bracket->price_per_km,
+                ])
+                ->all();
+        $bracketRate = FareCalculator::bracketPricePerKm($driverBrackets, $distanceKm);
+
+        $normalPricePerKm = $bracketRate ?? ($driver?->price_per_km_override !== null
             ? (float) $driver->price_per_km_override
             : FareCalculator::effectivePerKmRate(
                 $this->getNormalPricePerKm($orderType, $zone),
                 $this->getNormalPricePerKm($orderType, $destinationZone),
                 $this->getNormalPricePerKm($orderType, null),
                 $crossesZones
-            );
+            ));
 
         // Same out-of-zone surcharge findMatchingDrivers() applies — see the
         // comment there. $driver->pricing_zone_id is this driver's own
@@ -416,6 +435,125 @@ class DriverProfileController extends Controller
                 'is_out_of_zone' => $isOutOfZone,
                 'out_of_zone_percent' => $outOfZonePercent,
             ],
+        ]);
+    }
+
+    // Driver-facing: this driver's own saved distance-price brackets (see
+    // driver_price_brackets_page.dart), their current effective base fare
+    // (the same base_fare_override the main Pricing screen already shows —
+    // reused here as the anchor for computing a bracket's per-km rate
+    // instead of introducing a second base-price field), and the zones list
+    // with hub coordinates so the screen can measure distance-from-hub for
+    // each candidate destination.
+    public function getPriceBrackets(Request $request)
+    {
+        $user = JWTAuth::parseToken()->authenticate();
+        $driver = Driver::where('user_id', $user->id)->first();
+        $zone = $driver?->pricing_zone_id
+            ? PricingZone::find($driver->pricing_zone_id)
+            : null;
+
+        $brackets = DriverPriceBracket::where('user_id', $user->id)
+            ->orderBy('lower_km')
+            ->get(['id', 'lower_km', 'upper_km', 'anchor_distance_km', 'reference_text', 'tier_total_price', 'price_per_km']);
+
+        return response()->json([
+            'result' => true,
+            'data' => [
+                'base_fare_override' => $driver?->base_fare_override,
+                'effective_base_fare' => $driver?->base_fare_override !== null
+                    ? (float) $driver->base_fare_override
+                    : $this->getBaseFare(0, $zone),
+                'pricing_zone_id' => $driver?->pricing_zone_id,
+                'zones' => PricingZone::where('is_active', true)
+                    ->orderBy('name')
+                    ->get(['id', 'name', 'hub_lat', 'hub_lng', 'base_fare_taxi'])
+                    ->map(fn (PricingZone $z) => [
+                        'id' => $z->id,
+                        'name' => $z->name,
+                        'hub_lat' => $z->hub_lat !== null ? (float) $z->hub_lat : null,
+                        'hub_lng' => $z->hub_lng !== null ? (float) $z->hub_lng : null,
+                        'base_fare_taxi' => $z->base_fare_taxi !== null ? (float) $z->base_fare_taxi : null,
+                    ]),
+                'brackets' => $brackets,
+            ],
+        ]);
+    }
+
+    // Replace-all: the driver's full bracket list is always submitted
+    // together (see driver_price_brackets_page.dart's "Save Pricing Table"
+    // button) since brackets have no independent identity worth preserving
+    // across an edit — this deletes whatever the driver had before and
+    // inserts exactly what was sent, inside a transaction so a failure
+    // partway through can't leave a half-saved table. An empty array is
+    // valid and explicitly means "clear my brackets, go back to flat
+    // per-km pricing" — see FareCalculator::bracketPricePerKm().
+    public function updatePriceBrackets(Request $request)
+    {
+        $user = JWTAuth::parseToken()->authenticate();
+
+        $validator = Validator::make($request->all(), [
+            'brackets' => 'present|array',
+            'brackets.*.lower_km' => 'required|numeric|min:0',
+            'brackets.*.upper_km' => 'required|numeric|min:0',
+            'brackets.*.anchor_distance_km' => 'nullable|numeric|min:0',
+            'brackets.*.reference_text' => 'nullable|string|max:500',
+            'brackets.*.tier_total_price' => 'required|numeric|min:0',
+            'brackets.*.price_per_km' => 'required|numeric|min:0',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'result' => false,
+                'message' => 'Validation Error',
+                'errors' => $validator->errors(),
+            ], 400);
+        }
+
+        $brackets = collect($request->input('brackets', []))
+            ->map(fn ($b) => [
+                'lower_km' => (float) $b['lower_km'],
+                'upper_km' => (float) $b['upper_km'],
+                'anchor_distance_km' => isset($b['anchor_distance_km']) ? (float) $b['anchor_distance_km'] : null,
+                'reference_text' => $b['reference_text'] ?? null,
+                'tier_total_price' => (float) $b['tier_total_price'],
+                'price_per_km' => (float) $b['price_per_km'],
+            ])
+            ->sortBy('lower_km')
+            ->values();
+
+        $previousUpper = null;
+        foreach ($brackets as $bracket) {
+            if ($bracket['upper_km'] <= $bracket['lower_km']) {
+                return response()->json([
+                    'result' => false,
+                    'message' => 'Each bracket\'s upper_km must be greater than its lower_km.',
+                ], 422);
+            }
+            if ($previousUpper !== null && $bracket['lower_km'] < $previousUpper) {
+                return response()->json([
+                    'result' => false,
+                    'message' => 'Bracket ranges cannot overlap.',
+                ], 422);
+            }
+            $previousUpper = $bracket['upper_km'];
+        }
+
+        DB::transaction(function () use ($user, $brackets) {
+            DriverPriceBracket::where('user_id', $user->id)->delete();
+            foreach ($brackets as $bracket) {
+                DriverPriceBracket::create(array_merge($bracket, ['user_id' => $user->id]));
+            }
+        });
+
+        $saved = DriverPriceBracket::where('user_id', $user->id)
+            ->orderBy('lower_km')
+            ->get(['id', 'lower_km', 'upper_km', 'anchor_distance_km', 'reference_text', 'tier_total_price', 'price_per_km']);
+
+        return response()->json([
+            'result' => true,
+            'message' => 'Pricing brackets updated',
+            'data' => ['brackets' => $saved],
         ]);
     }
 

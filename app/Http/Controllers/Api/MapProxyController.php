@@ -91,6 +91,14 @@ class MapProxyController extends Controller
             'destination_lat' => 'required|numeric',
             'destination_lng' => 'required|numeric',
             'mode' => 'nullable|string|in:'.implode(',', self::DIRECTIONS_MODES),
+            // Lets one specific caller (currently: the driver's price-
+            // bracket builder, measuring distance from its zone hub to a
+            // candidate destination) force Mapbox regardless of the global
+            // 'maps.directions_provider' Setting, without moving every
+            // other screen that shares this same endpoint off Google too.
+            // Omitted (the normal case), this falls through to that Setting
+            // exactly like before.
+            'provider' => 'nullable|string|in:google,mapbox',
         ]);
 
         if ($validator->fails()) {
@@ -106,8 +114,11 @@ class MapProxyController extends Controller
         $destLat = (float) $request->input('destination_lat');
         $destLng = (float) $request->input('destination_lng');
         $mode = $request->input('mode', 'driving');
+        $requestedProvider = $request->input('provider');
 
-        $primary = $this->directionsProvider();
+        $primary = in_array($requestedProvider, ['google', 'mapbox'], true)
+            ? $requestedProvider
+            : $this->directionsProvider();
         $fallback = $primary === 'google' ? 'mapbox' : 'google';
 
         $result = $this->fetchDirections($primary, $mode, $originLat, $originLng, $destLat, $destLng);

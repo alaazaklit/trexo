@@ -191,6 +191,76 @@ class FareCalculatorTest extends TestCase
         $this->assertSame(17.5, $price);
     }
 
+    // --- bracketPricePerKm() -----------------------------------------------
+
+    public function test_empty_bracket_list_returns_null(): void
+    {
+        $this->assertNull(FareCalculator::bracketPricePerKm([], 7.0));
+    }
+
+    public function test_distance_inside_a_bracket_uses_that_brackets_rate(): void
+    {
+        $brackets = [
+            ['lower_km' => 0.0, 'upper_km' => 5.0, 'price_per_km' => 50000.0],
+            ['lower_km' => 5.0, 'upper_km' => 10.0, 'price_per_km' => 40000.0],
+        ];
+
+        $this->assertSame(50000.0, FareCalculator::bracketPricePerKm($brackets, 3.0));
+        $this->assertSame(40000.0, FareCalculator::bracketPricePerKm($brackets, 7.0));
+    }
+
+    public function test_distance_exactly_on_a_boundary_belongs_to_the_upper_bracket(): void
+    {
+        // upper_km is an exclusive bound — 5.0 belongs to [5,10), not [0,5).
+        $brackets = [
+            ['lower_km' => 0.0, 'upper_km' => 5.0, 'price_per_km' => 50000.0],
+            ['lower_km' => 5.0, 'upper_km' => 10.0, 'price_per_km' => 40000.0],
+        ];
+
+        $this->assertSame(40000.0, FareCalculator::bracketPricePerKm($brackets, 5.0));
+    }
+
+    public function test_distance_beyond_the_highest_bracket_clamps_to_it(): void
+    {
+        $brackets = [
+            ['lower_km' => 0.0, 'upper_km' => 5.0, 'price_per_km' => 50000.0],
+            ['lower_km' => 5.0, 'upper_km' => 10.0, 'price_per_km' => 40000.0],
+        ];
+
+        $this->assertSame(40000.0, FareCalculator::bracketPricePerKm($brackets, 18.0));
+    }
+
+    public function test_distance_below_the_lowest_bracket_clamps_to_it(): void
+    {
+        // Only reachable when the driver's lowest defined bracket doesn't
+        // start at 0.
+        $brackets = [
+            ['lower_km' => 5.0, 'upper_km' => 10.0, 'price_per_km' => 40000.0],
+            ['lower_km' => 10.0, 'upper_km' => 15.0, 'price_per_km' => 35000.0],
+        ];
+
+        $this->assertSame(40000.0, FareCalculator::bracketPricePerKm($brackets, 2.0));
+    }
+
+    public function test_unsorted_input_still_resolves_correctly(): void
+    {
+        $brackets = [
+            ['lower_km' => 10.0, 'upper_km' => 15.0, 'price_per_km' => 35000.0],
+            ['lower_km' => 0.0, 'upper_km' => 5.0, 'price_per_km' => 50000.0],
+            ['lower_km' => 5.0, 'upper_km' => 10.0, 'price_per_km' => 40000.0],
+        ];
+
+        $this->assertSame(40000.0, FareCalculator::bracketPricePerKm($brackets, 7.0));
+    }
+
+    public function test_single_bracket_driver_uses_it_for_any_distance(): void
+    {
+        $brackets = [['lower_km' => 0.0, 'upper_km' => 5.0, 'price_per_km' => 50000.0]];
+
+        $this->assertSame(50000.0, FareCalculator::bracketPricePerKm($brackets, 1.0));
+        $this->assertSame(50000.0, FareCalculator::bracketPricePerKm($brackets, 40.0));
+    }
+
     // --- effectivePerKmRate() ---------------------------------------------
 
     public function test_same_zone_trip_keeps_using_the_pickup_zone_rate_unchanged(): void

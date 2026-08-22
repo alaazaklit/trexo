@@ -64,6 +64,61 @@ class FareCalculator
     }
 
     /**
+     * Resolves a driver's own distance-tiered price list (see the
+     * driver_price_brackets table / driver_price_brackets_page.dart builder)
+     * into the single per-km rate that applies to one specific trip
+     * distance — the bracket analog of effectivePerKmRate(), consulted
+     * *before* it (and before the flat price_per_km_override) at both real
+     * call sites (MatchesDriverSchedules::findMatchingDrivers(),
+     * DriverProfileController::testPrice()), since once a driver has
+     * defined even one bracket it fully replaces their flat per-km rate for
+     * real billing.
+     *
+     * Returns null when $brackets is empty — the one signal both call sites
+     * use to fall through to the pre-existing flat-override/zone-guardrail
+     * logic entirely unchanged, so a driver who has never touched the
+     * bracket builder is unaffected by this method's existence.
+     *
+     * A distance inside more than one bracket's range can't happen (the
+     * brackets endpoint rejects overlapping ranges on save), but a distance
+     * outside every bracket the driver *did* define is expected — a driver
+     * who has adopted brackets almost certainly hasn't enumerated every
+     * possible trip length. Rather than silently reverting to a different
+     * pricing scheme mid-range, this clamps to whichever edge bracket is
+     * closest: the highest bracket's rate for anything beyond it, the
+     * lowest bracket's rate for anything below it (only reachable if the
+     * lowest bracket's own lower_km is above zero).
+     *
+     * @param array<int, array{lower_km: float, upper_km: float, price_per_km: float}> $brackets
+     *        Plain arrays, not Eloquent models — keeps this method DB-agnostic
+     *        like the rest of the class, and unit-testable without booting
+     *        the app. Order doesn't matter; sorted internally.
+     */
+    public static function bracketPricePerKm(array $brackets, float $distanceKm): ?float
+    {
+        if (empty($brackets)) {
+            return null;
+        }
+
+        usort($brackets, static fn (array $a, array $b) => $a['lower_km'] <=> $b['lower_km']);
+
+        if ($distanceKm < $brackets[0]['lower_km']) {
+            return (float) $brackets[0]['price_per_km'];
+        }
+
+        foreach ($brackets as $bracket) {
+            if ($distanceKm < $bracket['upper_km']) {
+                return (float) $bracket['price_per_km'];
+            }
+        }
+
+        // Distance is at or beyond every bracket's upper bound — clamp to
+        // the highest one rather than falling through to a different
+        // pricing scheme for an unusually long trip.
+        return (float) $brackets[count($brackets) - 1]['price_per_km'];
+    }
+
+    /**
      * A driver's normal per-km rate, increased by their own out-of-zone
      * percentage when a trip's destination falls outside their chosen
      * working zone (see MatchesDriverSchedules::findMatchingDrivers — the
